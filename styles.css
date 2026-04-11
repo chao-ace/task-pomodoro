@@ -1,0 +1,138 @@
+/* ============================================ */
+/* Task Pomodoro — Inline Timer Button Styles   */
+/* ============================================ */
+
+/* Base button style */
+.task-pomo-btn {
+	display: inline-flex;
+	align-items: center;
+	margin-left: 0.75em;
+	padding: 2px 8px;
+	border-radius: 4px;
+	font-size: var(--font-ui-smaller);
+	font-family: var(--font-monospace);
+	cursor: pointer;
+	user-select: none;
+	transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+	white-space: nowrap;
+	vertical-align: middle;
+}
+
+/* Timer label */
+.task-pomo-btn .task-pomo-label {
+	letter-spacing: 0.5px;
+}
+
+/* Pomodoro count */
+.task-pomo-btn .task-pomo-count {
+	margin-left: 4px;
+	letter-spacing: -1px;
+	font-size: var(--font-ui-smaller);
+}
+
+/* ============================================ */
+/* States                                       */
+/* ============================================ */
+
+/* Idle: ready to start */
+.task-pomo-btn.idle {
+	background: var(--background-secondary);
+	color: var(--text-muted);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.task-pomo-btn.idle:hover {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+/* Working: actively counting down */
+.task-pomo-btn.working {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: 1px solid var(--interactive-accent);
+	animation: task-pomo-pulse 2s ease-in-out infinite;
+}
+
+.task-pomo-btn.working:hover {
+	background: var(--interactive-accent-hover);
+	border-color: var(--interactive-accent-hover);
+}
+
+/* Paused: timer paused */
+.task-pomo-btn.paused {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border-hover);
+}
+
+.task-pomo-btn.paused:hover {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+/* Break: on break */
+.task-pomo-btn.break {
+	background: var(--background-secondary-alt);
+	color: var(--text-muted);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.task-pomo-btn.break:hover {
+	background: var(--interactive-accent-hover);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent-hover);
+}
+
+/* Completed: task done, no interaction */
+.task-pomo-btn.completed {
+	background: transparent;
+	color: var(--text-faint);
+	border: 1px solid transparent;
+	cursor: default;
+}
+
+/* ============================================ */
+/* Animations                                   */
+/* ============================================ */
+
+@keyframes task-pomo-pulse {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.75;
+	}
+}
+
+/* ============================================ */
+/* Status Bar                                   */
+/* ============================================ */
+
+.task-pomo-statusbar {
+	font-size: var(--font-ui-smaller);
+	font-family: var(--font-monospace);
+	color: var(--text-normal);
+	cursor: pointer;
+}
+
+/* ============================================ */
+/* Accessibility                                */
+/* ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+	.task-pomo-btn.working {
+		animation: none;
+	}
+	.task-pomo-btn {
+		transition: none;
+	}
+}
+
+@media (prefers-contrast: high) {
+	.task-pomo-btn {
+		border-width: 2px;
+	}
+}
