@@ -17,6 +17,7 @@ export default class TaskPomodoroPlugin extends Plugin {
 	soundManager!: SoundManager;
 	private statusBarItem!: HTMLDivElement;
 	private statusBarUpdateInterval: number | null = null;
+	private previousLines: Map<string, string[]> = new Map();
 
 	async onload() {
 		await this.loadSettings();
@@ -53,7 +54,7 @@ export default class TaskPomodoroPlugin extends Plugin {
 		);
 		this.registerEditorExtension([lpExtension]);
 
-		// Status bar — structured DOM like PomoBar
+		// Status bar
 		const sbSlot = this.addStatusBarItem();
 		this.statusBarItem = this.renderer.createStatusBarItem();
 		sbSlot.appendChild(this.statusBarItem);
@@ -71,6 +72,13 @@ export default class TaskPomodoroPlugin extends Plugin {
 				if (file instanceof TFile) {
 					this.handleFileChange(file.path);
 				}
+			})
+		);
+
+		// Clean up previousLines cache on file close
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", () => {
+				this.prunePreviousLinesCache();
 			})
 		);
 
@@ -121,6 +129,7 @@ export default class TaskPomodoroPlugin extends Plugin {
 		if (this.statusBarUpdateInterval) {
 			window.clearInterval(this.statusBarUpdateInterval);
 		}
+		this.previousLines.clear();
 	}
 
 	async loadSettings() {
@@ -149,55 +158,67 @@ export default class TaskPomodoroPlugin extends Plugin {
 	 * Detect checkbox changes: when a line changes from - [ ] to - [x],
 	 * finish the active timer for that task.
 	 */
-	private previousLines: Map<string, string[]> = new Map();
-
 	private handleFileChange(filePath: string) {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!view || view.file?.path !== filePath) return;
+		try {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!view || view.file?.path !== filePath) return;
 
-		const content = view.editor.getValue();
-		const currentLines = content.split("\n");
-		const prevLines = this.previousLines.get(filePath);
+			const content = view.editor.getValue();
+			const currentLines = content.split("\n");
+			const prevLines = this.previousLines.get(filePath);
 
-		if (prevLines) {
-			for (let i = 0; i < Math.min(currentLines.length, prevLines.length); i++) {
-				const prevLine = prevLines[i];
-				const currLine = currentLines[i];
+			if (prevLines) {
+				for (let i = 0; i < Math.min(currentLines.length, prevLines.length); i++) {
+					const prevLine = prevLines[i];
+					const currLine = currentLines[i];
 
-				// Detect: was unchecked, now checked
-				const wasUnchecked = prevLine.match(/^\s*- \[ \]/);
-				const isNowChecked = currLine.match(/^\s*- \[x\]/);
-
-				if (wasUnchecked && isNowChecked) {
-					// Finish the timer for this task if active
-					this.timerService.finishTaskIfActive(filePath, i);
+					// Detect: was unchecked, now checked
+					if (/^\s*- \[ \]/.test(prevLine) && /^\s*- \[x\]/.test(currLine)) {
+						this.timerService.finishTaskIfActive(filePath, i);
+					}
 				}
 			}
-		}
 
-		this.previousLines.set(filePath, currentLines);
+			this.previousLines.set(filePath, currentLines);
+		} catch {
+			// Silently ignore errors in change detection
+		}
 	}
 
-	/** Persist a 🍅 count update (during active pomodoro) */
-	private async persistPomodoro(filePath: string, lineNumber: number, newCount: number) {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (view && view.file?.path === filePath) {
-			const line = view.editor.getLine(lineNumber);
-			if (this.taskParser.isTaskLine(line)) {
-				const updated = this.taskParser.updatePomodoroCount(line, newCount);
-				view.editor.setLine(lineNumber, updated);
-				return;
+	/** Keep only the current file's cache, prevent memory leak */
+	private prunePreviousLinesCache() {
+		const activePath = this.getActiveFilePath();
+		for (const key of this.previousLines.keys()) {
+			if (key !== activePath) {
+				this.previousLines.delete(key);
 			}
 		}
+	}
 
-		const file = this.app.vault.getAbstractFileByPath(filePath);
-		if (file instanceof TFile) {
-			const content = await this.app.vault.read(file);
-			const lines = content.split("\n");
-			if (lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
-				lines[lineNumber] = this.taskParser.updatePomodoroCount(lines[lineNumber], newCount);
-				await this.app.vault.modify(file, lines.join("\n"));
+	/** Persist a pomodoro count update (during active timer) */
+	private async persistPomodoro(filePath: string, lineNumber: number, newCount: number) {
+		try {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (view && view.file?.path === filePath) {
+				const line = view.editor.getLine(lineNumber);
+				if (this.taskParser.isTaskLine(line)) {
+					const updated = this.taskParser.updatePomodoroCount(line, newCount);
+					view.editor.setLine(lineNumber, updated);
+					return;
+				}
 			}
+
+			const file = this.app.vault.getAbstractFileByPath(filePath);
+			if (file instanceof TFile) {
+				const content = await this.app.vault.read(file);
+				const lines = content.split("\n");
+				if (lineNumber >= 0 && lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
+					lines[lineNumber] = this.taskParser.updatePomodoroCount(lines[lineNumber], newCount);
+					await this.app.vault.modify(file, lines.join("\n"));
+				}
+			}
+		} catch {
+			// Silently ignore persistence errors
 		}
 	}
 
@@ -207,28 +228,32 @@ export default class TaskPomodoroPlugin extends Plugin {
 		lineNumber: number,
 		result: { pomodoroCount: number; totalHours: number }
 	) {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (view && view.file?.path === filePath) {
-			const line = view.editor.getLine(lineNumber);
-			if (this.taskParser.isTaskLine(line)) {
-				const updated = this.taskParser.updateTimeTracking(
-					line, result.pomodoroCount, result.totalHours
-				);
-				view.editor.setLine(lineNumber, updated);
-				return;
+		try {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (view && view.file?.path === filePath) {
+				const line = view.editor.getLine(lineNumber);
+				if (this.taskParser.isTaskLine(line)) {
+					const updated = this.taskParser.updateTimeTracking(
+						line, result.pomodoroCount, result.totalHours
+					);
+					view.editor.setLine(lineNumber, updated);
+					return;
+				}
 			}
-		}
 
-		const file = this.app.vault.getAbstractFileByPath(filePath);
-		if (file instanceof TFile) {
-			const content = await this.app.vault.read(file);
-			const lines = content.split("\n");
-			if (lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
-				lines[lineNumber] = this.taskParser.updateTimeTracking(
-					lines[lineNumber], result.pomodoroCount, result.totalHours
-				);
-				await this.app.vault.modify(file, lines.join("\n"));
+			const file = this.app.vault.getAbstractFileByPath(filePath);
+			if (file instanceof TFile) {
+				const content = await this.app.vault.read(file);
+				const lines = content.split("\n");
+				if (lineNumber >= 0 && lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
+					lines[lineNumber] = this.taskParser.updateTimeTracking(
+						lines[lineNumber], result.pomodoroCount, result.totalHours
+					);
+					await this.app.vault.modify(file, lines.join("\n"));
+				}
 			}
+		} catch {
+			// Silently ignore persistence errors
 		}
 	}
 
@@ -275,16 +300,20 @@ export default class TaskPomodoroPlugin extends Plugin {
 
 	private startStatusBarUpdater() {
 		this.statusBarUpdateInterval = window.setInterval(() => {
-			const active = this.timerService.getActiveTimer();
-			if (active && this.settings.showInStatusBar) {
-				this.renderer.updateStatusBar(
-					this.statusBarItem,
-					active.state,
-					active.remainingSeconds,
-					active.pomodoroCount
-				);
-				this.statusBarItem.style.display = "";
-			} else {
+			try {
+				const active = this.timerService.getActiveTimer();
+				if (active && this.settings.showInStatusBar) {
+					this.renderer.updateStatusBar(
+						this.statusBarItem,
+						active.state,
+						active.remainingSeconds,
+						active.pomodoroCount
+					);
+					this.statusBarItem.style.display = "";
+				} else {
+					this.statusBarItem.style.display = "none";
+				}
+			} catch {
 				this.statusBarItem.style.display = "none";
 			}
 		}, 1000);
