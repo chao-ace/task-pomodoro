@@ -6,10 +6,11 @@
   "pomodoroEmoji": "🍅",
   "showInStatusBar": true,
   "soundEnabled": true,
-  "soundVolume": 0.5,
+  "soundVolume": 1,
+  "selectedSound": "chime",
+  "customSoundUrl": "",
   "notificationEnabled": true,
   "persistentNotification": false,
   "autoStartBreak": false,
-  "autoProgressEnabled": false,
-  "selectedSound": "chime"
+  "autoProgressEnabled": false
 }
