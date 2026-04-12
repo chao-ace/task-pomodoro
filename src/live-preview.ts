@@ -1,5 +1,4 @@
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
-import { RangeSetBuilder } from "@codemirror/state";
 import { TaskKey } from "./types";
 import { TaskParser } from "./task-parser";
 import { TimerService } from "./timer-service";
@@ -37,18 +36,16 @@ class TaskPomodoroWidget extends WidgetType {
 	}
 
 	toDOM(): HTMLElement {
-		const workSeconds = this.timerService.getSettings().workMinutes * 60;
-
 		if (this.isComplete) {
-			// Completed task: show summary only, no button
-			const pomoCount = this.taskParser.extractPomodoroCount(this.lineText);
-			const hours = this.taskParser.extractHours(this.lineText);
-			const summary = this.renderer.createCompletedSummary(pomoCount, hours);
-			summary.setAttribute("data-task-pomo-key", this.key);
-			return summary;
+			// Completed task: time tracking already in markdown, skip widget
+			const placeholder = document.createElement("span");
+			placeholder.style.display = "none";
+			placeholder.setAttribute("data-task-pomo-key", this.key);
+			return placeholder;
 		}
 
 		// Active task: show timer button
+		const workSeconds = this.timerService.getSettings().workMinutes * 60;
 		const existingState = this.timerService.getState(this.key);
 		const pomodoroCount = existingState?.pomodoroCount
 			?? this.taskParser.extractPomodoroCount(this.lineText);
@@ -77,7 +74,7 @@ class TaskPomodoroWidget extends WidgetType {
 	}
 
 	ignoreEvent(event: Event): boolean {
-		return false; // Allow all events (clicks need to work)
+		return false;
 	}
 }
 
@@ -95,7 +92,6 @@ export function createLivePreviewExtension(
 			private taskParser: TaskParser;
 			private renderer: TaskRenderer;
 			private getFilePath: () => string;
-			private needsRedraw = false;
 			private refreshInterval: number | null = null;
 
 			constructor(view: EditorView) {
@@ -106,28 +102,23 @@ export function createLivePreviewExtension(
 				this.getFilePath = getFilePath;
 				this.decorations = this.buildDecorations(this.view);
 
-				// Subscribe to timer events — update DOM directly instead of rebuilding
 				this.timerService.on("tick", this.handleTimerEvent);
 				this.timerService.on("state-change", this.handleTimerEvent);
 
-				// Periodic refresh for active timers (lightweight DOM update)
 				this.refreshInterval = window.setInterval(() => {
 					this.updateActiveWidgets();
 				}, 1000);
 			}
 
-			// Called on every timer event — just mark for redraw, don't rebuild immediately
 			handleTimerEvent = (key: TaskKey) => {
 				this.updateWidgetForKey(key);
 			};
 
-			// Find the widget DOM element for a given key and update it directly
 			private updateWidgetForKey(key: TaskKey) {
 				const widgets = this.view.dom.querySelectorAll(`[data-task-pomo-key="${key}"]`);
 				const state = this.timerService.getState(key);
 				if (!state || widgets.length === 0) return;
 
-				const workSeconds = this.timerService.getSettings().workMinutes * 60;
 				widgets.forEach((widget) => {
 					this.renderer.updateButton(
 						widget as HTMLSpanElement,
@@ -139,7 +130,6 @@ export function createLivePreviewExtension(
 				});
 			}
 
-			// Update all active timer widgets
 			private updateActiveWidgets() {
 				const allWidgets = this.view.dom.querySelectorAll("[data-task-pomo-key]");
 				allWidgets.forEach((widget) => {
@@ -180,7 +170,7 @@ export function createLivePreviewExtension(
 							const lineText = line.text;
 
 							if (this.taskParser.isTaskLine(lineText)) {
-								const lineNumber = i - 1; // 0-indexed
+								const lineNumber = i - 1;
 								const key = `${filePath}:${lineNumber}`;
 								const isComplete = this.taskParser.isTaskComplete(lineText);
 

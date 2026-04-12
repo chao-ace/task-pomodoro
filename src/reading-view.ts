@@ -148,14 +148,8 @@ class TaskButtonRenderChild extends MarkdownRenderChild {
 		const workSeconds = this.timerService.getSettings().workMinutes * 60;
 
 		if (this.isComplete) {
-			// Completed task: show summary (no button)
-			// Extract tracked data from the raw line text
-			const pomoCount = this.taskParser.extractPomodoroCount(this.taskText);
-			const hours = this.taskParser.extractHours(this.taskText);
-			const summary = this.renderer.createCompletedSummary(pomoCount, hours);
-			this.containerEl.appendChild(summary);
-			this.buttonEl = summary as HTMLSpanElement;
-			return; // No timer events needed for completed tasks
+			// Completed task: time tracking already in markdown text, skip
+			return;
 		}
 
 		// Active/incomplete task: show timer button
