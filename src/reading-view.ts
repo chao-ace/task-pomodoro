@@ -1,4 +1,4 @@
-import { App, MarkdownPostProcessorContext, MarkdownRenderChild } from "obsidian";
+import { App, MarkdownPostProcessorContext, MarkdownRenderChild, TFile } from "obsidian";
 import { TaskKey } from "./types";
 import { TaskParser } from "./task-parser";
 import { TimerService } from "./timer-service";
@@ -21,75 +21,84 @@ export class ReadingViewRenderer {
 		this.renderer = renderer;
 	}
 
-	/**
-	 * The post-processor callback.
-	 */
 	process = (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
-		const taskLists = el.findAll("ul.contains-task-list");
-		for (const list of taskLists) {
-			this.processTaskList(list, ctx);
+		// Try to find task list items directly — more robust than finding lists first
+		const taskItems = el.findAll("li.task-list-item");
+		if (taskItems.length === 0) return;
+
+		const filePath = ctx.sourcePath;
+		const sectionInfo = ctx.getSectionInfo(el);
+		if (!sectionInfo) {
+			// No section info — try to attach buttons without line number tracking
+			// This can happen in some edge cases
+			this.processItemsWithoutSection(taskItems, filePath, ctx);
+			return;
+		}
+
+		// We have section info — compute line numbers
+		// The section starts at lineStart. Task items within the section
+		// are sequential lines (each <li> = one markdown line for flat lists).
+		// But we need to account for non-task lines in the same section.
+
+		// Strategy: count all <li> elements (task and non-task) to get correct line offsets
+		const parentUl = taskItems[0]?.closest("ul");
+		if (!parentUl) return;
+
+		const allItems = parentUl.findAll(":scope > li");
+		const taskItemSet = new Set(taskItems);
+
+		let lineOffset = 0;
+		for (let i = 0; i < allItems.length; i++) {
+			const li = allItems[i];
+			const lineNumber = sectionInfo.lineStart + lineOffset;
+
+			if (taskItemSet.has(li)) {
+				const checkbox = li.querySelector("input.task-list-item-checkbox") as HTMLInputElement;
+				if (checkbox) {
+					const isComplete = checkbox.checked;
+					const textContent = this.getTaskText(li);
+
+					if (textContent.trim()) {
+						const key = `${filePath}:${lineNumber}`;
+						const child = new TaskButtonRenderChild(
+							li, key, filePath, lineNumber, isComplete, textContent.trim(),
+							this.timerService, this.taskParser, this.renderer
+						);
+						ctx.addChild(child);
+					}
+				}
+			}
+			lineOffset++;
 		}
 	};
 
-	private processTaskList(list: HTMLElement, ctx: MarkdownPostProcessorContext) {
-		const items = list.findAll("li.task-list-item");
-		if (items.length === 0) return;
-
-		const sectionInfo = ctx.getSectionInfo(list);
-		if (!sectionInfo) return;
-
-		const filePath = ctx.sourcePath;
-
-		// We determine task state from the rendered DOM (checkbox checked state)
-		// rather than reading the raw markdown, since vault.read is async
-		this.processTaskListWithContent(items, filePath, sectionInfo.lineStart, ctx);
-	}
-
-	private processTaskListWithContent(
+	private processItemsWithoutSection(
 		items: HTMLElement[],
 		filePath: string,
-		startLine: number,
 		ctx: MarkdownPostProcessorContext
 	) {
 		for (let i = 0; i < items.length; i++) {
 			const li = items[i];
-			const lineNumber = startLine + i;
-
-			// Determine if the task is complete from the checkbox
 			const checkbox = li.querySelector("input.task-list-item-checkbox") as HTMLInputElement;
 			if (!checkbox) continue;
 
 			const isComplete = checkbox.checked;
-
-			// Get the text content of the li (excluding nested lists)
 			const textContent = this.getTaskText(li);
-			if (!textContent.trim()) continue; // Skip empty tasks
+			if (!textContent.trim()) continue;
 
-			const key = `${filePath}:${lineNumber}`;
-
-			// Create a MarkdownRenderChild to manage lifecycle
+			// Use a DOM-based key when we don't have line numbers
+			const key = `${filePath}:dom-${i}`;
 			const child = new TaskButtonRenderChild(
-				li,
-				key,
-				filePath,
-				lineNumber,
-				isComplete,
-				textContent.trim(),
-				this.timerService,
-				this.taskParser,
-				this.renderer
+				li, key, filePath, -1, isComplete, textContent.trim(),
+				this.timerService, this.taskParser, this.renderer
 			);
 			ctx.addChild(child);
 		}
 	}
 
-	/** Extract visible text content from a task list item, excluding nested lists */
 	private getTaskText(li: HTMLElement): string {
-		// Clone to avoid modifying the original
 		const clone = li.cloneNode(true) as HTMLElement;
-		// Remove nested lists
 		clone.querySelectorAll("ul, ol").forEach(el => el.remove());
-		// Remove checkbox
 		clone.querySelector("input.task-list-item-checkbox")?.remove();
 		return clone.textContent ?? "";
 	}
@@ -108,8 +117,8 @@ class TaskButtonRenderChild extends MarkdownRenderChild {
 	private taskParser: TaskParser;
 	private renderer: TaskRenderer;
 	private buttonEl: HTMLSpanElement | null = null;
-	private onTick: (key: TaskKey) => void;
-	private onStateChange: (key: TaskKey) => void;
+	private boundTick: (key: TaskKey) => void;
+	private boundStateChange: (key: TaskKey) => void;
 
 	constructor(
 		containerEl: HTMLElement,
@@ -131,36 +140,33 @@ class TaskButtonRenderChild extends MarkdownRenderChild {
 		this.timerService = timerService;
 		this.taskParser = taskParser;
 		this.renderer = renderer;
-		this.onTick = this.handleTick.bind(this);
-		this.onStateChange = this.handleStateChange.bind(this);
+		this.boundTick = this.handleTimerEvent.bind(this);
+		this.boundStateChange = this.handleTimerEvent.bind(this);
 	}
 
 	onload() {
+		const workSeconds = this.timerService.getSettings().workMinutes * 60;
 		const existingState = this.timerService.getState(this.key);
 		const pomodoroCount = existingState?.pomodoroCount ?? 0;
-		const workSeconds = this.timerService["settings"].workMinutes * 60;
 
 		const state = this.isComplete ? "completed" : (existingState?.state ?? "idle");
 		const remaining = existingState?.remainingSeconds ?? workSeconds;
 		const totalWork = existingState?.totalWorkSeconds ?? workSeconds;
 
 		this.buttonEl = this.renderer.createButton(
-			state,
-			remaining,
-			totalWork,
-			pomodoroCount,
+			state, remaining, totalWork, pomodoroCount,
 			() => this.handleClick()
 		);
 
 		this.containerEl.appendChild(this.buttonEl);
 
-		this.timerService.on("tick", this.onTick);
-		this.timerService.on("state-change", this.onStateChange);
+		this.timerService.on("tick", this.boundTick);
+		this.timerService.on("state-change", this.boundStateChange);
 	}
 
 	onunload() {
-		this.timerService.off("tick", this.onTick);
-		this.timerService.off("state-change", this.onStateChange);
+		this.timerService.off("tick", this.boundTick);
+		this.timerService.off("state-change", this.boundStateChange);
 	}
 
 	private handleClick() {
@@ -170,27 +176,11 @@ class TaskButtonRenderChild extends MarkdownRenderChild {
 		if (existingState) {
 			this.timerService.toggle(this.key);
 		} else {
-			// Start a new timer — we need the raw line text
-			// For now, use the task text as fingerprint
 			this.timerService.start(this.filePath, this.lineNumber, `- [ ] ${this.taskText}`);
 		}
 	}
 
-	private handleTick(key: TaskKey) {
-		if (key !== this.key || !this.buttonEl) return;
-		const state = this.timerService.getState(this.key);
-		if (!state) return;
-
-		this.renderer.updateButton(
-			this.buttonEl,
-			state.state,
-			state.remainingSeconds,
-			state.totalWorkSeconds,
-			state.pomodoroCount
-		);
-	}
-
-	private handleStateChange(key: TaskKey) {
+	private handleTimerEvent(key: TaskKey) {
 		if (key !== this.key || !this.buttonEl) return;
 		const state = this.timerService.getState(this.key);
 		if (!state) return;

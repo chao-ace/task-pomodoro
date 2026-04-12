@@ -1,5 +1,5 @@
-import { App, MarkdownView, Notice, TFile } from "obsidian";
-import { TaskKey, TaskTimerState, TaskPomodoroSettings, TimerState } from "./types";
+import { App, Notice } from "obsidian";
+import { TaskKey, TaskTimerState, TaskPomodoroSettings } from "./types";
 import { TaskParser } from "./task-parser";
 
 type TimerEventType = "tick" | "state-change" | "work-complete" | "break-complete";
@@ -13,11 +13,19 @@ export class TimerService {
 	private tickInterval: number | null = null;
 	private listeners: Map<TimerEventType, Set<TimerCallback>> = new Map();
 	private onPomodoroComplete?: (filePath: string, lineNumber: number, newCount: number) => Promise<void>;
+	// Track work intervals for long break
+	private workIntervalCount: number = 0;
+	// Timer mode: 0 = work, 1 = short break, 2 = long break
+	private currentDurationIndex: number = 0;
 
 	constructor(app: App, settings: TaskPomodoroSettings, taskParser: TaskParser) {
 		this.app = app;
 		this.settings = settings;
 		this.taskParser = taskParser;
+	}
+
+	getSettings(): TaskPomodoroSettings {
+		return this.settings;
 	}
 
 	updateSettings(settings: TaskPomodoroSettings) {
@@ -44,7 +52,6 @@ export class TimerService {
 		const state = this.timers.get(key);
 		if (!state) return;
 		this.listeners.get(event)?.forEach(cb => cb(key, state));
-		// Always emit state-change for any event
 		if (event !== "state-change") {
 			this.listeners.get("state-change")?.forEach(cb => cb(key, state));
 		}
@@ -79,7 +86,7 @@ export class TimerService {
 			}
 		}
 
-		// Stop the tick loop if no active timers
+		// Stop tick loop if no active timers
 		let hasActive = false;
 		for (const state of this.timers.values()) {
 			if (state.state === "working" || state.state === "break") {
@@ -94,9 +101,21 @@ export class TimerService {
 
 	private async onWorkComplete(state: TaskTimerState) {
 		state.pomodoroCount++;
+
+		// Determine if we should do a long break
+		this.workIntervalCount++;
+		const isLongBreak = this.workIntervalCount >= this.settings.intervalsBeforeLongBreak;
+
 		state.state = "break";
+		state.totalBreakSeconds = isLongBreak
+			? this.settings.longBreakMinutes * 60
+			: this.settings.shortBreakMinutes * 60;
 		state.remainingSeconds = state.totalBreakSeconds;
 		state.startedAt = Date.now();
+
+		if (isLongBreak) {
+			this.workIntervalCount = 0;
+		}
 
 		this.emit("work-complete", state.key);
 		this.emit("state-change", state.key);
@@ -106,15 +125,17 @@ export class TimerService {
 			await this.onPomodoroComplete(state.filePath, state.lineNumber, state.pomodoroCount);
 		}
 
-		// Notification
-		new Notice(`🍅 番茄钟完成！休息 ${this.settings.shortBreakMinutes} 分钟`, 5000);
+		// Notifications
+		const breakType = isLongBreak ? "长休息" : "短休息";
+		const breakDuration = isLongBreak ? this.settings.longBreakMinutes : this.settings.shortBreakMinutes;
+		new Notice(`🍅 番茄钟完成！${breakType} ${breakDuration} 分钟`, 5000);
 		this.playCompletionSound();
 
 		// Auto-start break if enabled
 		if (!this.settings.autoStartBreak) {
-			state.state = "idle";
-			state.remainingSeconds = state.totalBreakSeconds;
-			this.emit("state-change", state.key);
+			// Stay in break state but don't count down
+			// Actually, let's keep the countdown going but just notify
+			// The break timer will count down and then go to idle
 		}
 	}
 
@@ -123,15 +144,27 @@ export class TimerService {
 		state.remainingSeconds = state.totalWorkSeconds;
 		state.startedAt = null;
 
+		this.currentDurationIndex = 0; // Back to work
+
 		this.emit("break-complete", state.key);
 		this.emit("state-change", state.key);
 
 		new Notice("☕ 休息结束！准备下一个番茄钟", 5000);
 		this.playCompletionSound();
+
+		// Auto-start next work session if enabled
+		if (this.settings.autoProgressEnabled) {
+			state.state = "working";
+			state.remainingSeconds = state.totalWorkSeconds;
+			state.startedAt = Date.now();
+			this.ensureTickLoop();
+			this.emit("state-change", state.key);
+			new Notice("🍅 自动开始下一个番茄钟！", 3000);
+		}
 	}
 
-	private playCompletionSound() {
-		// Simple audio beep using Web Audio API
+	playCompletionSound() {
+		if (!this.settings.soundEnabled) return;
 		try {
 			const ctx = new AudioContext();
 			const osc = ctx.createOscillator();
@@ -143,6 +176,20 @@ export class TimerService {
 			osc.type = "sine";
 			osc.start();
 			osc.stop(ctx.currentTime + 0.3);
+			// Play a second tone for more noticeable alert
+			setTimeout(() => {
+				try {
+					const osc2 = ctx.createOscillator();
+					const gain2 = ctx.createGain();
+					osc2.connect(gain2);
+					gain2.connect(ctx.destination);
+					gain2.gain.value = this.settings.soundVolume * 0.3;
+					osc2.frequency.value = 1000;
+					osc2.type = "sine";
+					osc2.start();
+					osc2.stop(ctx.currentTime + 0.3);
+				} catch {}
+			}, 400);
 		} catch {
 			// Silently ignore audio errors
 		}
@@ -157,7 +204,6 @@ export class TimerService {
 		const existing = this.timers.get(key);
 
 		if (existing) {
-			// Resume or start work
 			if (existing.state === "paused") {
 				existing.state = "working";
 				existing.startedAt = Date.now();
@@ -173,11 +219,9 @@ export class TimerService {
 				this.emit("state-change", key);
 				return existing;
 			}
-			// Already running, just return current state
 			return existing;
 		}
 
-		// Create new timer
 		const pomodoroCount = this.taskParser.extractPomodoroCount(lineText);
 		const fingerprint = this.taskParser.getTaskFingerprint(lineText);
 
@@ -203,7 +247,6 @@ export class TimerService {
 	pause(key: TaskKey): TaskTimerState | null {
 		const state = this.timers.get(key);
 		if (!state || state.state !== "working") return null;
-
 		state.state = "paused";
 		state.startedAt = null;
 		this.emit("state-change", key);
@@ -213,7 +256,6 @@ export class TimerService {
 	resume(key: TaskKey): TaskTimerState | null {
 		const state = this.timers.get(key);
 		if (!state || state.state !== "paused") return null;
-
 		state.state = "working";
 		state.startedAt = Date.now();
 		this.ensureTickLoop();
@@ -224,7 +266,6 @@ export class TimerService {
 	stop(key: TaskKey): TaskTimerState | null {
 		const state = this.timers.get(key);
 		if (!state) return null;
-
 		state.state = "idle";
 		state.remainingSeconds = state.totalWorkSeconds;
 		state.startedAt = null;
@@ -264,29 +305,42 @@ export class TimerService {
 		return state;
 	}
 
+	/** Reset a timer to idle state */
+	reset(key: TaskKey): TaskTimerState | null {
+		const state = this.timers.get(key);
+		if (!state) return null;
+		state.state = "idle";
+		state.remainingSeconds = state.totalWorkSeconds;
+		state.startedAt = null;
+		this.workIntervalCount = 0;
+		this.emit("state-change", key);
+		return state;
+	}
+
+	/** Reset entire pomodoro session (all work interval counts) */
+	resetSession() {
+		this.workIntervalCount = 0;
+		this.currentDurationIndex = 0;
+		// Stop all timers
+		for (const state of this.timers.values()) {
+			if (state.state === "working" || state.state === "break") {
+				state.state = "idle";
+				state.remainingSeconds = state.totalWorkSeconds;
+				state.startedAt = null;
+				this.emit("state-change", state.key);
+			}
+		}
+		this.stopTickLoop();
+	}
+
 	getState(key: TaskKey): TaskTimerState | null {
 		return this.timers.get(key) ?? null;
 	}
 
-	/** Remove a timer (e.g., when task line is deleted) */
 	remove(key: TaskKey) {
 		this.timers.delete(key);
 	}
 
-	/** Update line number for a timer (when lines shift) */
-	updateLineNumber(oldKey: TaskKey, newLineNumber: number): TaskKey | null {
-		const state = this.timers.get(oldKey);
-		if (!state) return null;
-
-		this.timers.delete(oldKey);
-		state.lineNumber = newLineNumber;
-		const newKey = this.makeKey(state.filePath, newLineNumber);
-		state.key = newKey;
-		this.timers.set(newKey, state);
-		return newKey;
-	}
-
-	/** Mark a task as completed (disable timer) */
 	complete(key: TaskKey) {
 		const state = this.timers.get(key);
 		if (!state) return;
@@ -295,7 +349,6 @@ export class TimerService {
 		this.emit("state-change", key);
 	}
 
-	/** Get the currently active (working) timer, if any */
 	getActiveTimer(): TaskTimerState | null {
 		for (const state of this.timers.values()) {
 			if (state.state === "working" || state.state === "break") {
@@ -305,29 +358,28 @@ export class TimerService {
 		return null;
 	}
 
-	/** Cleanup on plugin unload */
+	getWorkIntervalCount(): number {
+		return this.workIntervalCount;
+	}
+
 	cleanup() {
 		this.stopTickLoop();
 		this.timers.clear();
 		this.listeners.clear();
 	}
 
-	/** Save state for persistence across restarts */
 	serialize(): TaskTimerState[] {
 		return Array.from(this.timers.values()).filter(
 			s => s.state !== "idle" && s.state !== "completed"
 		);
 	}
 
-	/** Restore state from persistence */
 	deserialize(states: TaskTimerState[]) {
 		for (const state of states) {
-			// Calculate how much time passed while Obsidian was closed
 			if (state.state === "working" && state.startedAt) {
 				const elapsed = Math.floor((Date.now() - state.startedAt) / 1000);
 				state.remainingSeconds = Math.max(0, state.remainingSeconds - elapsed);
 				if (state.remainingSeconds <= 0) {
-					// Work completed while closed — we'll handle this on next tick
 					state.state = "idle";
 					state.remainingSeconds = state.totalWorkSeconds;
 				}

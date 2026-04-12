@@ -1,44 +1,52 @@
-// Timer states for a single task
 export type TimerState = "idle" | "working" | "paused" | "break" | "completed";
-
-// Key to identify a specific task: "filePath:lineNumber"
 export type TaskKey = string;
 
-// State for one task's timer
 export interface TaskTimerState {
 	key: TaskKey;
 	filePath: string;
 	lineNumber: number;
-	taskFingerprint: string; // first ~50 chars, for drift detection
+	taskFingerprint: string;
 	state: TimerState;
 	remainingSeconds: number;
 	totalWorkSeconds: number;
 	totalBreakSeconds: number;
 	pomodoroCount: number;
-	startedAt: number | null; // Date.now()
+	startedAt: number | null;
 }
 
-// Plugin settings
 export interface TaskPomodoroSettings {
+	// Timer durations
 	workMinutes: number;
 	shortBreakMinutes: number;
 	longBreakMinutes: number;
+	intervalsBeforeLongBreak: number;
+
+	// Display
 	pomodoroEmoji: string;
+	showInStatusBar: boolean;
+
+	// Notifications
 	soundEnabled: boolean;
 	soundVolume: number;
-	selectedSound: string;
+	notificationEnabled: boolean;
+	persistentNotification: boolean;
+
+	// Behavior
 	autoStartBreak: boolean;
-	showInStatusBar: boolean;
+	autoProgressEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: TaskPomodoroSettings = {
 	workMinutes: 25,
 	shortBreakMinutes: 5,
 	longBreakMinutes: 15,
-	pomodoroEmoji: "\u{1F345}", // 🍅
+	intervalsBeforeLongBreak: 4,
+	pomodoroEmoji: "\u{1F345}",
+	showInStatusBar: true,
 	soundEnabled: true,
 	soundVolume: 0.5,
-	selectedSound: "chime",
-	autoStartBreak: false,
-	showInStatusBar: true,
+	notificationEnabled: true,
+	persistentNotification: false,
+	autoStartBreak: true,
+	autoProgressEnabled: false,
 };

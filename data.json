@@ -1,0 +1,11 @@
+{
+  "workMinutes": 25,
+  "shortBreakMinutes": 5,
+  "longBreakMinutes": 15,
+  "pomodoroEmoji": "🍅",
+  "soundEnabled": true,
+  "soundVolume": 0.5,
+  "selectedSound": "chime",
+  "autoStartBreak": false,
+  "showInStatusBar": true
+}

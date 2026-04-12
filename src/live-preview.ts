@@ -1,5 +1,4 @@
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
 import { RangeSetBuilder } from "@codemirror/state";
 import { TaskKey } from "./types";
 import { TaskParser } from "./task-parser";
@@ -38,34 +37,38 @@ class TaskPomodoroWidget extends WidgetType {
 	}
 
 	toDOM(): HTMLElement {
+		const workSeconds = this.timerService.getSettings().workMinutes * 60;
 		const existingState = this.timerService.getState(this.key);
 		const pomodoroCount = existingState?.pomodoroCount
 			?? this.taskParser.extractPomodoroCount(this.lineText);
 		const state = this.isComplete ? "completed" : (existingState?.state ?? "idle");
-		const remaining = existingState?.remainingSeconds ?? this.timerService["settings"].workMinutes * 60;
-		const totalWork = existingState?.totalWorkSeconds ?? this.timerService["settings"].workMinutes * 60;
+		const remaining = existingState?.remainingSeconds ?? workSeconds;
+		const totalWork = existingState?.totalWorkSeconds ?? workSeconds;
 
 		const btn = this.renderer.createButton(
-			state,
-			remaining,
-			totalWork,
-			pomodoroCount,
-			() => this.timerService.toggle(this.key)
+			state, remaining, totalWork, pomodoroCount,
+			() => {
+				if (this.isComplete) return;
+				const es = this.timerService.getState(this.key);
+				if (es) {
+					this.timerService.toggle(this.key);
+				} else {
+					this.timerService.start(this.filePath, this.lineNumber, this.lineText);
+				}
+			}
 		);
 
-		// Store widget reference for updates
-		(btn as any).__taskPomoKey = this.key;
-
+		// Store key for DOM-based updates
+		btn.setAttribute("data-task-pomo-key", this.key);
 		return btn;
 	}
 
 	eq(other: TaskPomodoroWidget): boolean {
-		return this.key === other.key;
+		return this.key === other.key && this.lineText === other.lineText;
 	}
 
 	ignoreEvent(event: Event): boolean {
-		// Allow click events on the button
-		return event.type !== "click";
+		return false; // Allow all events (clicks need to work)
 	}
 }
 
@@ -76,31 +79,76 @@ export function createLivePreviewExtension(
 	getFilePath: () => string
 ) {
 	return ViewPlugin.fromClass(
-		class {
+		class TaskPomodoroViewPlugin {
 			view: EditorView;
 			decorations: DecorationSet;
 			private timerService: TimerService;
 			private taskParser: TaskParser;
 			private renderer: TaskRenderer;
 			private getFilePath: () => string;
+			private needsRedraw = false;
+			private refreshInterval: number | null = null;
 
 			constructor(view: EditorView) {
 				this.view = view;
-				this.decorations = Decoration.none;
+				this.decorations = this.buildDecorations(this.view);
 				this.timerService = timerService;
 				this.taskParser = taskParser;
 				this.renderer = renderer;
 				this.getFilePath = getFilePath;
 
-				// Subscribe to timer events to trigger re-decoration
-				this.timerService.on("tick", this.handleTimerUpdate);
-				this.timerService.on("state-change", this.handleTimerUpdate);
+				// Subscribe to timer events — update DOM directly instead of rebuilding
+				this.timerService.on("tick", this.handleTimerEvent);
+				this.timerService.on("state-change", this.handleTimerEvent);
+
+				// Periodic refresh for active timers (lightweight DOM update)
+				this.refreshInterval = window.setInterval(() => {
+					this.updateActiveWidgets();
+				}, 1000);
 			}
 
-			handleTimerUpdate = () => {
-				// Force re-decoration by updating the decorations
-				this.decorations = this.buildDecorations(this.view);
+			// Called on every timer event — just mark for redraw, don't rebuild immediately
+			handleTimerEvent = (key: TaskKey) => {
+				this.updateWidgetForKey(key);
 			};
+
+			// Find the widget DOM element for a given key and update it directly
+			private updateWidgetForKey(key: TaskKey) {
+				const widgets = this.view.dom.querySelectorAll(`[data-task-pomo-key="${key}"]`);
+				const state = this.timerService.getState(key);
+				if (!state || widgets.length === 0) return;
+
+				const workSeconds = this.timerService.getSettings().workMinutes * 60;
+				widgets.forEach((widget) => {
+					this.renderer.updateButton(
+						widget as HTMLSpanElement,
+						state.state,
+						state.remainingSeconds,
+						state.totalWorkSeconds,
+						state.pomodoroCount
+					);
+				});
+			}
+
+			// Update all active timer widgets
+			private updateActiveWidgets() {
+				const allWidgets = this.view.dom.querySelectorAll("[data-task-pomo-key]");
+				allWidgets.forEach((widget) => {
+					const key = widget.getAttribute("data-task-pomo-key");
+					if (!key) return;
+					const state = this.timerService.getState(key);
+					if (!state) return;
+					if (state.state === "working" || state.state === "break" || state.state === "paused") {
+						this.renderer.updateButton(
+							widget as HTMLSpanElement,
+							state.state,
+							state.remainingSeconds,
+							state.totalWorkSeconds,
+							state.pomodoroCount
+						);
+					}
+				});
+			}
 
 			update(update: ViewUpdate) {
 				if (update.docChanged || update.viewportChanged) {
@@ -109,51 +157,49 @@ export function createLivePreviewExtension(
 			}
 
 			buildDecorations(view: EditorView): DecorationSet {
-				const builder = new RangeSetBuilder<Decoration>();
+				const widgets: any[] = [];
 				const filePath = this.getFilePath();
+				if (!filePath) return Decoration.none;
 
 				for (const { from, to } of view.visibleRanges) {
-					syntaxTree(view.state).iterate({
-						from,
-						to,
-						enter: (node) => {
-							// Look for list items that contain task markers
-							if (node.name === "ListItem") {
-								const lineFrom = view.state.doc.lineAt(node.from);
-								const lineText = lineFrom.text;
+					try {
+						const lineFrom = view.state.doc.lineAt(from);
+						const lineTo = view.state.doc.lineAt(to);
 
-								if (this.taskParser.isTaskLine(lineText)) {
-									const lineNumber = lineFrom.number - 1; // 0-indexed
-									const key = `${filePath}:${lineNumber}`;
-									const isComplete = this.taskParser.isTaskComplete(lineText);
+						for (let i = lineFrom.number; i <= lineTo.number; i++) {
+							const line = view.state.doc.line(i);
+							const lineText = line.text;
 
-									const widget = Decoration.widget({
-										widget: new TaskPomodoroWidget(
-											key,
-											filePath,
-											lineNumber,
-											lineText,
-											isComplete,
-											this.timerService,
-											this.taskParser,
-											this.renderer
-										),
-										side: 1, // Place after the line content
-									});
+							if (this.taskParser.isTaskLine(lineText)) {
+								const lineNumber = i - 1; // 0-indexed
+								const key = `${filePath}:${lineNumber}`;
+								const isComplete = this.taskParser.isTaskComplete(lineText);
 
-									builder.add(node.to, node.to, widget);
-								}
+								const widget = Decoration.widget({
+									widget: new TaskPomodoroWidget(
+										key, filePath, lineNumber, lineText, isComplete,
+										this.timerService, this.taskParser, this.renderer
+									),
+									side: 1,
+								});
+
+								widgets.push(widget.range(line.to));
 							}
-						},
-					});
+						}
+					} catch {
+						// Ignore errors in line iteration
+					}
 				}
 
-				return builder.finish();
+				return Decoration.set(widgets, true);
 			}
 
 			destroy() {
-				this.timerService.off("tick", this.handleTimerUpdate);
-				this.timerService.off("state-change", this.handleTimerUpdate);
+				this.timerService.off("tick", this.handleTimerEvent);
+				this.timerService.off("state-change", this.handleTimerEvent);
+				if (this.refreshInterval) {
+					window.clearInterval(this.refreshInterval);
+				}
 			}
 		},
 		{

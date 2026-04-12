@@ -15,7 +15,7 @@ export class TaskPomodoroSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName("Task Pomodoro").setHeading();
 
-		// Timer Settings
+		// === Timer Settings ===
 		new Setting(containerEl).setName("计时设置").setHeading();
 
 		new Setting(containerEl)
@@ -35,7 +35,7 @@ export class TaskPomodoroSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("短休息时长（分钟）")
-			.setDesc("每个番茄钟后的休息时长")
+			.setDesc("番茄钟后的短休息时长")
 			.addText((text) =>
 				text
 					.setValue(this.plugin.settings.shortBreakMinutes.toString())
@@ -48,7 +48,84 @@ export class TaskPomodoroSettingTab extends PluginSettingTab {
 					})
 			);
 
-		// Display Settings
+		new Setting(containerEl)
+			.setName("长休息时长（分钟）")
+			.setDesc("连续完成多个番茄钟后的长休息时长")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.longBreakMinutes.toString())
+					.onChange(async (value) => {
+						const num = parseInt(value);
+						if (!isNaN(num) && num > 0) {
+							this.plugin.settings.longBreakMinutes = num;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("长休息间隔")
+			.setDesc("连续完成多少个番茄钟后触发长休息")
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.intervalsBeforeLongBreak.toString())
+					.onChange(async (value) => {
+						const num = parseInt(value);
+						if (!isNaN(num) && num > 0) {
+							this.plugin.settings.intervalsBeforeLongBreak = num;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		// === Behavior Settings ===
+		new Setting(containerEl).setName("行为设置").setHeading();
+
+		new Setting(containerEl)
+			.setName("自动开始休息")
+			.setDesc("番茄钟完成后自动开始休息倒计时")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.autoStartBreak)
+					.onChange(async (value) => {
+						this.plugin.settings.autoStartBreak = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("自动进行")
+			.setDesc("休息结束后自动开始下一个番茄钟")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.autoProgressEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.autoProgressEnabled = value;
+						if (value) {
+							this.plugin.settings.persistentNotification = false;
+						}
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("持续提醒")
+			.setDesc("番茄钟完成后持续提醒直到你手动操作（与自动进行互斥）")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.persistentNotification)
+					.onChange(async (value) => {
+						this.plugin.settings.persistentNotification = value;
+						if (value) {
+							this.plugin.settings.autoProgressEnabled = false;
+						}
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		// === Display Settings ===
 		new Setting(containerEl).setName("显示设置").setHeading();
 
 		new Setting(containerEl)
@@ -77,7 +154,7 @@ export class TaskPomodoroSettingTab extends PluginSettingTab {
 					})
 			);
 
-		// Sound Settings
+		// === Sound Settings ===
 		new Setting(containerEl).setName("音效设置").setHeading();
 
 		new Setting(containerEl)
@@ -106,18 +183,18 @@ export class TaskPomodoroSettingTab extends PluginSettingTab {
 					})
 			);
 
-		// Behavior Settings
-		new Setting(containerEl).setName("行为设置").setHeading();
+		// === Reset ===
+		new Setting(containerEl).setName("重置").setHeading();
 
 		new Setting(containerEl)
-			.setName("自动开始休息")
-			.setDesc("番茄钟完成后自动开始休息倒计时")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.autoStartBreak)
-					.onChange(async (value) => {
-						this.plugin.settings.autoStartBreak = value;
-						await this.plugin.saveSettings();
+			.setName("重置番茄钟会话")
+			.setDesc("重置所有计时器和工作间隔计数")
+			.addButton((button) =>
+				button
+					.setButtonText("重置")
+					.setWarning()
+					.onClick(() => {
+						this.plugin.resetSession();
 					})
 			);
 	}

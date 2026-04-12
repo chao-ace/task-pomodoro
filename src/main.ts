@@ -9,7 +9,7 @@ import { TaskPomodoroSettingTab } from "./settings-tab";
 
 export default class TaskPomodoroPlugin extends Plugin {
 	settings!: TaskPomodoroSettings;
-	private timerService!: TimerService;
+	timerService!: TimerService;
 	private taskParser!: TaskParser;
 	private renderer!: TaskRenderer;
 	private readingViewRenderer!: ReadingViewRenderer;
@@ -59,15 +59,47 @@ export default class TaskPomodoroPlugin extends Plugin {
 
 		// Commands
 		this.addCommand({
-			id: "start-pomo-under-cursor",
+			id: "toggle-pomo",
 			name: "开始/暂停光标所在任务的番茄钟",
 			callback: () => this.togglePomoUnderCursor(),
 		});
 
 		this.addCommand({
-			id: "stop-pomo-under-cursor",
+			id: "stop-pomo",
 			name: "停止光标所在任务的番茄钟",
 			callback: () => this.stopPomoUnderCursor(),
+		});
+
+		this.addCommand({
+			id: "reset-pomo",
+			name: "重置光标所在任务的番茄钟",
+			callback: () => this.resetPomoUnderCursor(),
+		});
+
+		this.addCommand({
+			id: "reset-session",
+			name: "重置整个番茄钟会话",
+			callback: () => {
+				this.timerService.resetSession();
+			},
+		});
+
+		this.addCommand({
+			id: "toggle-sound",
+			name: "切换音效开关",
+			callback: () => {
+				this.settings.soundEnabled = !this.settings.soundEnabled;
+				this.saveSettings();
+			},
+		});
+
+		this.addCommand({
+			id: "toggle-statusbar",
+			name: "切换状态栏显示",
+			callback: () => {
+				this.settings.showInStatusBar = !this.settings.showInStatusBar;
+				this.saveSettings();
+			},
 		});
 
 		console.log("Task Pomodoro plugin loaded");
@@ -90,6 +122,11 @@ export default class TaskPomodoroPlugin extends Plugin {
 		this.taskParser.updateSettings(this.settings);
 		this.renderer.updateEmoji(this.settings.pomodoroEmoji);
 		this.timerService.updateSettings(this.settings);
+	}
+
+	/** Public method for settings tab */
+	resetSession() {
+		this.timerService.resetSession();
 	}
 
 	private getActiveFilePath(): string {
@@ -122,7 +159,6 @@ export default class TaskPomodoroPlugin extends Plugin {
 		}
 	}
 
-	/** Toggle the pomodoro timer for the task under the cursor */
 	private togglePomoUnderCursor() {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view || !view.file) return;
@@ -131,9 +167,7 @@ export default class TaskPomodoroPlugin extends Plugin {
 		const lineNumber = cursor.line;
 		const line = view.editor.getLine(lineNumber);
 
-		if (!this.taskParser.isTaskLine(line)) {
-			return;
-		}
+		if (!this.taskParser.isTaskLine(line)) return;
 
 		const key = `${view.file.path}:${lineNumber}`;
 		const existingState = this.timerService.getState(key);
@@ -145,7 +179,6 @@ export default class TaskPomodoroPlugin extends Plugin {
 		}
 	}
 
-	/** Stop the pomodoro timer for the task under the cursor */
 	private stopPomoUnderCursor() {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view || !view.file) return;
@@ -156,18 +189,24 @@ export default class TaskPomodoroPlugin extends Plugin {
 		this.timerService.stop(key);
 	}
 
-	/** Start periodic status bar updates */
+	private resetPomoUnderCursor() {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view || !view.file) return;
+
+		const cursor = view.editor.getCursor();
+		const lineNumber = cursor.line;
+		const key = `${view.file.path}:${lineNumber}`;
+		this.timerService.reset(key);
+	}
+
 	private startStatusBarUpdater() {
 		this.statusBarUpdateInterval = window.setInterval(() => {
 			const active = this.timerService.getActiveTimer();
 			if (active && this.settings.showInStatusBar) {
-				const displayText = this.taskParser.getTaskDisplayText(
-					// We don't have the raw line here, use fingerprint
-					active.taskFingerprint
-				);
 				const time = this.renderer.formatTime(active.remainingSeconds);
 				const stateIcon = active.state === "working" ? "⏱" : "☕";
-				this.statusBarItem.textContent = `${stateIcon} ${time} — ${displayText}`;
+				const pomoCount = active.pomodoroCount;
+				this.statusBarItem.textContent = `${stateIcon} ${time} 🍅${pomoCount}`;
 				this.statusBarItem.style.display = "";
 			} else {
 				this.statusBarItem.style.display = "none";
