@@ -13,7 +13,7 @@ export default class TaskPomodoroPlugin extends Plugin {
 	private taskParser!: TaskParser;
 	private renderer!: TaskRenderer;
 	private readingViewRenderer!: ReadingViewRenderer;
-	private statusBarItem!: HTMLElement;
+	private statusBarItem!: HTMLDivElement;
 	private statusBarUpdateInterval: number | null = null;
 
 	async onload() {
@@ -50,9 +50,12 @@ export default class TaskPomodoroPlugin extends Plugin {
 		);
 		this.registerEditorExtension([lpExtension]);
 
-		// Status bar
-		this.statusBarItem = this.addStatusBarItem();
-		this.statusBarItem.className = "task-pomo-statusbar";
+		// Status bar — structured DOM like PomoBar
+		const sbSlot = this.addStatusBarItem();
+		this.statusBarItem = this.renderer.createStatusBarItem();
+		sbSlot.appendChild(this.statusBarItem);
+		sbSlot.style.padding = "0";
+		sbSlot.style.cursor = "pointer";
 		this.statusBarItem.style.display = "none";
 		this.startStatusBarUpdater();
 
@@ -269,10 +272,12 @@ export default class TaskPomodoroPlugin extends Plugin {
 		this.statusBarUpdateInterval = window.setInterval(() => {
 			const active = this.timerService.getActiveTimer();
 			if (active && this.settings.showInStatusBar) {
-				const time = this.renderer.formatTime(active.remainingSeconds);
-				const stateIcon = active.state === "working" ? "⏱" : "☕";
-				const pomoCount = active.pomodoroCount;
-				this.statusBarItem.textContent = `${stateIcon} ${time} 🍅${pomoCount}`;
+				this.renderer.updateStatusBar(
+					this.statusBarItem,
+					active.state,
+					active.remainingSeconds,
+					active.pomodoroCount
+				);
 				this.statusBarItem.style.display = "";
 			} else {
 				this.statusBarItem.style.display = "none";

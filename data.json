@@ -2,10 +2,14 @@
   "workMinutes": 25,
   "shortBreakMinutes": 5,
   "longBreakMinutes": 15,
+  "intervalsBeforeLongBreak": 4,
   "pomodoroEmoji": "🍅",
+  "showInStatusBar": true,
   "soundEnabled": true,
   "soundVolume": 0.5,
-  "selectedSound": "chime",
+  "notificationEnabled": true,
+  "persistentNotification": false,
   "autoStartBreak": false,
-  "showInStatusBar": true
+  "autoProgressEnabled": false,
+  "selectedSound": "chime"
 }

@@ -6,53 +6,72 @@
 .task-pomo-btn {
 	display: inline-flex;
 	align-items: center;
-	margin-left: 0.75em;
-	padding: 2px 8px;
-	border-radius: 4px;
-	font-size: var(--font-ui-smaller);
+	gap: 4px;
+	margin-left: 0.5em;
+	padding: 1px 7px;
+	border-radius: 10px;
+	font-size: var(--font-smallest);
 	font-family: var(--font-monospace);
 	cursor: pointer;
 	user-select: none;
-	transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+	transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 	white-space: nowrap;
 	vertical-align: middle;
+	border: 1px solid transparent;
 }
 
 /* Timer label */
 .task-pomo-btn .task-pomo-label {
-	letter-spacing: 0.5px;
+	letter-spacing: 0.3px;
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
 }
 
 /* Pomodoro count */
 .task-pomo-btn .task-pomo-count {
-	margin-left: 4px;
-	letter-spacing: -1px;
-	font-size: var(--font-ui-smaller);
+	margin-left: 2px;
+	letter-spacing: -2px;
+	font-size: var(--font-smallest);
+}
+
+/* Inline SVG icons */
+.task-pomo-btn svg {
+	width: 12px;
+	height: 12px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	flex-shrink: 0;
 }
 
 /* ============================================ */
 /* States                                       */
 /* ============================================ */
 
-/* Idle: ready to start */
+/* Idle: subtle, ready to start */
 .task-pomo-btn.idle {
 	background: var(--background-secondary);
-	color: var(--text-muted);
-	border: 1px solid var(--background-modifier-border);
+	color: var(--text-faint);
+	border-color: var(--background-modifier-border);
 }
 
 .task-pomo-btn.idle:hover {
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
 	border-color: var(--interactive-accent);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-/* Working: actively counting down */
+/* Working: accent color with pulse */
 .task-pomo-btn.working {
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
-	border: 1px solid var(--interactive-accent);
-	animation: task-pomo-pulse 2s ease-in-out infinite;
+	border-color: var(--interactive-accent);
+	animation: task-pomo-pulse 2.5s ease-in-out infinite;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
 .task-pomo-btn.working:hover {
@@ -60,11 +79,11 @@
 	border-color: var(--interactive-accent-hover);
 }
 
-/* Paused: timer paused */
+/* Paused: dimmed */
 .task-pomo-btn.paused {
 	background: var(--background-modifier-hover);
-	color: var(--text-normal);
-	border: 1px solid var(--background-modifier-border-hover);
+	color: var(--text-muted);
+	border-color: var(--background-modifier-border-hover);
 }
 
 .task-pomo-btn.paused:hover {
@@ -73,11 +92,11 @@
 	border-color: var(--interactive-accent);
 }
 
-/* Break: on break */
+/* Break: calm tone */
 .task-pomo-btn.break {
 	background: var(--background-secondary-alt);
 	color: var(--text-muted);
-	border: 1px solid var(--background-modifier-border);
+	border-color: var(--background-modifier-border);
 }
 
 .task-pomo-btn.break:hover {
@@ -86,12 +105,14 @@
 	border-color: var(--interactive-accent-hover);
 }
 
-/* Completed: task done, no interaction */
-.task-pomo-btn.completed {
-	background: transparent;
+/* Completed summary: inline text */
+.task-pomo-summary {
+	display: inline;
+	margin-left: 0.5em;
+	font-size: var(--font-smallest);
 	color: var(--text-faint);
-	border: 1px solid transparent;
-	cursor: default;
+	letter-spacing: -1px;
+	user-select: none;
 }
 
 /* ============================================ */
@@ -101,9 +122,11 @@
 @keyframes task-pomo-pulse {
 	0%, 100% {
 		opacity: 1;
+		transform: scale(1);
 	}
 	50% {
-		opacity: 0.75;
+		opacity: 0.8;
+		transform: scale(0.97);
 	}
 }
 
@@ -112,10 +135,122 @@
 /* ============================================ */
 
 .task-pomo-statusbar {
-	font-size: var(--font-ui-smaller);
-	font-family: var(--font-monospace);
-	color: var(--text-normal);
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 0 6px;
+	border-radius: 4px;
 	cursor: pointer;
+	transition: background-color 0.3s ease, color 0.3s ease;
+	font-family: var(--font-monospace);
+	color: var(--text-muted);
+	height: 100%;
+}
+
+/* Icon container */
+.task-pomo-statusbar .task-pomo-sb-icon {
+	display: inline-flex;
+	align-items: center;
+	line-height: 1;
+}
+
+.task-pomo-statusbar .task-pomo-sb-icon svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	opacity: 0.8;
+	transition: stroke 0.3s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* Time display */
+.task-pomo-statusbar .task-pomo-sb-time {
+	font-size: var(--font-ui-small);
+	line-height: 1;
+	font-weight: 500;
+	letter-spacing: 0.3px;
+	min-width: 3.5em;
+}
+
+/* Pomodoro count in status bar */
+.task-pomo-statusbar .task-pomo-sb-count {
+	font-size: var(--font-ui-smaller);
+	line-height: 1;
+	opacity: 0.7;
+}
+
+/* Separator dot */
+.task-pomo-statusbar .task-pomo-sb-sep {
+	opacity: 0.3;
+	font-size: 0.6em;
+}
+
+/* Hover */
+.task-pomo-statusbar:hover {
+	background-color: var(--interactive-accent-hover);
+	color: var(--text-on-accent);
+}
+
+.task-pomo-statusbar:hover .task-pomo-sb-icon svg {
+	stroke: var(--text-on-accent);
+	opacity: 1;
+}
+
+/* Active (working) */
+.task-pomo-statusbar.task-pomo-sb-active {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.task-pomo-statusbar.task-pomo-sb-active .task-pomo-sb-icon svg {
+	stroke: var(--text-on-accent);
+	opacity: 1;
+	animation: task-pomo-sb-pulse 2s ease-in-out infinite;
+}
+
+.task-pomo-statusbar.task-pomo-sb-active:hover {
+	background-color: var(--interactive-accent-hover);
+}
+
+/* Paused */
+.task-pomo-statusbar.task-pomo-sb-paused {
+	background-color: var(--interactive-normal);
+	color: var(--text-muted);
+}
+
+.task-pomo-statusbar.task-pomo-sb-paused .task-pomo-sb-icon svg {
+	stroke: var(--text-muted);
+	animation: none;
+}
+
+.task-pomo-statusbar.task-pomo-sb-paused:hover {
+	background-color: var(--interactive-hover);
+	color: var(--text-normal);
+}
+
+/* Break */
+.task-pomo-statusbar.task-pomo-sb-break {
+	background-color: var(--background-secondary-alt);
+	color: var(--text-muted);
+}
+
+.task-pomo-statusbar.task-pomo-sb-break .task-pomo-sb-icon svg {
+	stroke: var(--text-muted);
+	opacity: 0.9;
+}
+
+@keyframes task-pomo-sb-pulse {
+	0%, 100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.7;
+		transform: scale(0.92);
+	}
 }
 
 /* ============================================ */
@@ -123,10 +258,12 @@
 /* ============================================ */
 
 @media (prefers-reduced-motion: reduce) {
-	.task-pomo-btn.working {
+	.task-pomo-btn.working,
+	.task-pomo-statusbar.task-pomo-sb-active .task-pomo-sb-icon svg {
 		animation: none;
 	}
-	.task-pomo-btn {
+	.task-pomo-btn,
+	.task-pomo-statusbar {
 		transition: none;
 	}
 }
@@ -134,5 +271,9 @@
 @media (prefers-contrast: high) {
 	.task-pomo-btn {
 		border-width: 2px;
+	}
+	.task-pomo-statusbar .task-pomo-sb-icon svg {
+		stroke-width: 2.5;
+		opacity: 1;
 	}
 }
