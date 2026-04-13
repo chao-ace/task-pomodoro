@@ -142,7 +142,7 @@ export class TimerService {
 		this.emit("state-change", state.key);
 
 		if (this.onPomodoroComplete) {
-			const totalHours = Math.round((state.totalWorkedSeconds / 3600) * 100) / 100;
+			const totalHours = (state.totalWorkedSeconds || 0) / 3600;
 			await this.onPomodoroComplete(state.filePath, state.lineNumber, state.pomodoroCount, totalHours);
 		}
 

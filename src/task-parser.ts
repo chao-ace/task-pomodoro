@@ -49,13 +49,15 @@ export class TaskParser {
 
 	/** Format hours as x.xh (e.g. 0.3h, 1.5h) */
 	formatHours(hours: number): string {
-		if (hours <= 0) return "";
-		// Show at most 1 decimal
-		const rounded = Math.round(hours * 10) / 10;
-		if (rounded === Math.floor(rounded)) {
-			return `${rounded}h`;
+		if (!hours || hours <= 0) return "";
+		
+		// For very short durations, show 2 decimals
+		if (hours < 0.1) {
+			const val = parseFloat(hours.toFixed(2));
+			return val > 0 ? `${val}h` : "0.01h";
 		}
-		return `${rounded}h`;
+		
+		return `${parseFloat(hours.toFixed(1))}h`;
 	}
 
 	/** Remove all trailing pomodoro emoji and hours from a line */
