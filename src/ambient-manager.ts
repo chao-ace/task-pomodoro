@@ -60,8 +60,15 @@ export class AmbientManager {
 	}
 
 	updateSettings(settings: TaskPomodoroSettings) {
+		const wasEnabled = this.settings.ambientEnabled;
 		this.settings = settings;
-		if (this.masterGain) {
+
+		// If disabled, stop immediately
+		if (wasEnabled && !this.settings.ambientEnabled) {
+			this.stop();
+		}
+
+		if (this.masterGain && this.settings.ambientEnabled) {
 			this.masterGain.gain.linearRampToValueAtTime(
 				this.settings.ambientVolume,
 				(this.ctx?.currentTime ?? 0) + 0.1
@@ -125,6 +132,7 @@ export class AmbientManager {
 	}
 
 	play(soundKey: SoundscapeKey) {
+		if (!this.settings.ambientEnabled) return;
 		if (this.isPlaying && this.currentSound === soundKey) return;
 		this.stop();
 
