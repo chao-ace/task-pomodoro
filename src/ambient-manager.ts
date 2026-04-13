@@ -17,7 +17,7 @@ import { TaskPomodoroSettings } from "./types";
  */
 
 const SOUNDSCAPE_KEYS = [
-	"whitenoise", "rain", "fire", "forest", "ocean", "cafe", "wind", "brownnoise", "stream", "summer", "library",
+	"whitenoise", "rain", "fire", "forest", "ocean", "cafe", "wind", "brownnoise", "stream", "summer", "library", "concentration", "train", "storm", "zen",
 ] as const;
 
 export type SoundscapeKey = (typeof SOUNDSCAPE_KEYS)[number];
@@ -35,6 +35,10 @@ const SOUNDSCAPE_LABELS: Record<SoundscapeKey, { en: string; zh: string }> = {
 	stream:     { en: "Stream",      zh: "溪流" },
 	summer:     { en: "Summer Night", zh: "夏夜" },
 	library:    { en: "Library",     zh: "图书馆" },
+	concentration: { en: "Focus Beats", zh: "专注音频" },
+	train:      { en: "Train Ride",   zh: "火车旅程" },
+	storm:      { en: "Stormy Rain", zh: "暴雨雷鸣" },
+	zen:        { en: "Zen Bowl",    zh: "禅意钵音" },
 };
 
 export class AmbientManager {
@@ -158,6 +162,18 @@ export class AmbientManager {
 				break;
 			case "library":
 				this.buildLibrary(ctx, gain);
+				break;
+			case "concentration":
+				this.buildConcentration(ctx, gain);
+				break;
+			case "train":
+				this.buildTrain(ctx, gain);
+				break;
+			case "storm":
+				this.buildStorm(ctx, gain);
+				break;
+			case "zen":
+				this.buildZen(ctx, gain);
 				break;
 		}
 
@@ -696,5 +712,156 @@ export class AmbientManager {
 		roomFilter.connect(output);
 		this.trackNode(roomFilter);
 		this.createLoopingSource(ctx, roomFilter, true);
+	}
+
+	private buildConcentration(ctx: AudioContext, output: GainNode) {
+		// Alpha wave binaural beats (approx 10Hz difference)
+		const merger = ctx.createChannelMerger(2);
+		merger.connect(output);
+		this.trackNode(merger);
+
+		// Left: 200Hz
+		const oscL = ctx.createOscillator();
+		oscL.type = "sine";
+		oscL.frequency.value = 200;
+		const gainL = ctx.createGain();
+		gainL.gain.value = 0.5;
+		oscL.connect(gainL);
+		gainL.connect(merger, 0, 0);
+		oscL.start();
+		this.oscillators.push(oscL);
+		this.trackNode(gainL);
+
+		// Right: 210Hz (resulting in 10Hz beat)
+		const oscR = ctx.createOscillator();
+		oscR.type = "sine";
+		oscR.frequency.value = 210;
+		const gainR = ctx.createGain();
+		gainR.gain.value = 0.5;
+		oscR.connect(gainR);
+		gainR.connect(merger, 0, 1);
+		oscR.start();
+		this.oscillators.push(oscR);
+		this.trackNode(gainR);
+
+		// Deep sub-hum for grounding
+		const subFilter = ctx.createBiquadFilter();
+		subFilter.type = "lowpass";
+		subFilter.frequency.value = 60;
+		subFilter.connect(output);
+		this.trackNode(subFilter);
+		this.createLoopingSource(ctx, subFilter, true);
+	}
+
+	private buildTrain(ctx: AudioContext, output: GainNode) {
+		// Constant deep rumble
+		const rumbleFilter = ctx.createBiquadFilter();
+		rumbleFilter.type = "lowpass";
+		rumbleFilter.frequency.value = 150;
+		rumbleFilter.connect(output);
+		this.trackNode(rumbleFilter);
+		this.createLoopingSource(ctx, rumbleFilter, true);
+
+		// Periodic tracks clack-clack (rhythmic pulses)
+		const tracksGain = ctx.createGain();
+		tracksGain.gain.value = 0.05;
+		tracksGain.connect(output);
+		this.trackNode(tracksGain);
+
+		// Clack modulation: double pulse every ~2 seconds
+		const clackSource = this.createLoopingSource(ctx, tracksGain);
+		const clackFilter = ctx.createBiquadFilter();
+		clackFilter.type = "bandpass";
+		clackFilter.frequency.value = 800;
+		clackSource.disconnect();
+		clackSource.connect(clackFilter);
+		clackFilter.connect(tracksGain);
+		this.trackNode(clackFilter);
+
+		// Slow irregular wave for track sound
+		const clackLfo = this.createOsc(ctx, "sine", 0.5); // 0.5Hz = 2s
+		const clackDepth = ctx.createGain();
+		clackDepth.gain.value = 0.04;
+		clackLfo.connect(clackDepth);
+		clackDepth.connect(tracksGain.gain);
+		this.trackNode(clackDepth);
+	}
+
+	private buildStorm(ctx: AudioContext, output: GainNode) {
+		// Heavy rain foundation
+		this.buildRain(ctx, output);
+		
+		// Add lower frequency layer
+		const heavyFilter = ctx.createBiquadFilter();
+		heavyFilter.type = "lowpass";
+		heavyFilter.frequency.value = 400;
+		heavyFilter.connect(output);
+		this.trackNode(heavyFilter);
+		this.createLoopingSource(ctx, heavyFilter, true);
+
+		// Thunder: occasional very low frequency noise bursts
+		const thunderGain = ctx.createGain();
+		thunderGain.gain.value = 0;
+		thunderGain.connect(output);
+		this.trackNode(thunderGain);
+
+		const thunderFilter = ctx.createBiquadFilter();
+		thunderFilter.type = "lowpass";
+		thunderFilter.frequency.value = 80;
+		thunderFilter.connect(thunderGain);
+		this.trackNode(thunderFilter);
+
+		this.createLoopingSource(ctx, thunderFilter, true);
+
+		// Random thunder trigger
+		const triggerThunder = () => {
+			if (!this.isPlaying || this.currentSound !== "storm") return;
+			const now = ctx.currentTime;
+			thunderGain.gain.cancelScheduledValues(now);
+			thunderGain.gain.setValueAtTime(0, now);
+			thunderGain.gain.linearRampToValueAtTime(0.4, now + 2);
+			thunderGain.gain.linearRampToValueAtTime(0, now + 7);
+			
+			window.setTimeout(triggerThunder, 15000 + Math.random() * 20000);
+		};
+		window.setTimeout(triggerThunder, 5000);
+	}
+
+	private buildZen(ctx: AudioContext, output: GainNode) {
+		// Soft air background
+		const airFilter = ctx.createBiquadFilter();
+		airFilter.type = "lowpass";
+		airFilter.frequency.value = 1000;
+		airFilter.connect(output);
+		this.trackNode(airFilter);
+
+		const airGain = ctx.createGain();
+		airGain.gain.value = 0.05;
+		airGain.connect(airFilter);
+		this.trackNode(airGain);
+		this.createLoopingSource(ctx, airGain);
+
+		// Singing bowl: Pure sine harmonic
+		const triggerBowl = () => {
+			if (!this.isPlaying || this.currentSound !== "zen") return;
+			const now = ctx.currentTime;
+			
+			const osc = ctx.createOscillator();
+			osc.type = "sine";
+			osc.frequency.value = 164.81; // E3
+			
+			const bowlGain = ctx.createGain();
+			bowlGain.gain.setValueAtTime(0, now);
+			bowlGain.gain.linearRampToValueAtTime(0.15, now + 0.1);
+			bowlGain.gain.exponentialRampToValueAtTime(0.001, now + 10);
+			
+			osc.connect(bowlGain);
+			bowlGain.connect(output);
+			osc.start();
+			osc.stop(now + 10);
+			
+			window.setTimeout(triggerBowl, 12000 + Math.random() * 5000);
+		};
+		window.setTimeout(triggerBowl, 1000);
 	}
 }
