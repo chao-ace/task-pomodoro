@@ -365,4 +365,12 @@ export class TaskPomodoroSettingTab extends PluginSettingTab {
 					})
 			);
 	}
+
+	hide() {
+		// Stop any ambient preview when the settings tab is closed
+		if (this.plugin.ambientManager.getIsPlaying()) {
+			this.plugin.ambientManager.stop();
+		}
+		super.hide();
+	}
 }

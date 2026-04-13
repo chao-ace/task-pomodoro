@@ -60,11 +60,10 @@ export class AmbientManager {
 	}
 
 	updateSettings(settings: TaskPomodoroSettings) {
-		const wasEnabled = this.settings.ambientEnabled;
 		this.settings = settings;
 
-		// If disabled, stop immediately
-		if (wasEnabled && !this.settings.ambientEnabled) {
+		// If disabled and playing, stop immediately
+		if (!this.settings.ambientEnabled && this.isPlaying) {
 			this.stop();
 		}
 
