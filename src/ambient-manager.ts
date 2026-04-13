@@ -537,48 +537,79 @@ export class AmbientManager {
 	}
 
 	private buildCafe(ctx: AudioContext, output: GainNode) {
-		// 1. Mid-range murmur (crowd atmosphere)
-		const murmurFilter = ctx.createBiquadFilter();
-		murmurFilter.type = "bandpass";
-		murmurFilter.frequency.value = 1200;
-		murmurFilter.Q.value = 0.4;
-		murmurFilter.connect(output);
-		this.trackNode(murmurFilter);
+		// 1. Foundation: Room tone (low hum of AC/machines)
+		const roomFilter = ctx.createBiquadFilter();
+		roomFilter.type = "lowpass";
+		roomFilter.frequency.value = 300;
+		roomFilter.connect(output);
+		this.trackNode(roomFilter);
 
-		const murmurGain = ctx.createGain();
-		murmurGain.gain.value = 0.5;
-		murmurGain.connect(murmurFilter);
-		this.trackNode(murmurGain);
-		this.createLoopingSource(ctx, murmurGain, true);
+		const roomGain = ctx.createGain();
+		roomGain.gain.value = 0.25;
+		roomGain.connect(roomFilter);
+		this.trackNode(roomGain);
+		this.createLoopingSource(ctx, roomGain, true);
 
-		// Distant clinks (cups/spoons)
+		// 2. The 'Murmur' (simulating distant voices)
+		// We use multiple bandpass layers with different LFOs to create a shifting texture
+		const freqs = [600, 900, 1300];
+		freqs.forEach((f, i) => {
+			const b = ctx.createBiquadFilter();
+			b.type = "bandpass";
+			b.frequency.value = f;
+			b.Q.value = 2.0; // tighter Q for more 'vocal' quality
+			b.connect(output);
+			this.trackNode(b);
+
+			const g = ctx.createGain();
+			g.gain.value = 0.15;
+			g.connect(b);
+			this.trackNode(g);
+			this.createLoopingSource(ctx, g, true);
+
+			// Individual voice modulation
+			const lfo = this.createOsc(ctx, "sine", 0.2 + i * 0.15);
+			const depth = ctx.createGain();
+			depth.gain.value = 0.08;
+			lfo.connect(depth);
+			depth.connect(g.gain);
+			this.trackNode(depth);
+		});
+
+		// 3. Sharp Clinks (cups, spoons, plates)
 		const clinkTrigger = () => {
 			if (!this.isPlaying || this.currentSound !== "cafe") return;
 			const now = ctx.currentTime;
 			
-			const filter = ctx.createBiquadFilter();
-			filter.type = "bandpass";
-			filter.frequency.value = 4000 + Math.random() * 3000;
-			filter.Q.value = 10;
-			
-			const g = ctx.createGain();
-			g.gain.setValueAtTime(0, now);
-			g.gain.linearRampToValueAtTime(0.02 + Math.random() * 0.03, now + 0.005);
-			g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-			
-			const noise = ctx.createBufferSource();
-			noise.buffer = this.getNoiseBuffer(ctx);
-			noise.connect(filter);
-			filter.connect(g);
-			g.connect(output);
-			noise.start(now);
-			noise.stop(now + 0.2);
-			this.trackNode(filter);
-			this.trackNode(g);
-			
-			window.setTimeout(clinkTrigger, 2000 + Math.random() * 10000);
+			// Occasionally do a 'double clink'
+			const repeats = Math.random() > 0.7 ? 2 : 1;
+			for (let i = 0; i < repeats; i++) {
+				const start = now + i * 0.2;
+				const osc = ctx.createOscillator();
+				osc.type = "sine";
+				osc.frequency.value = 3000 + Math.random() * 4000;
+				
+				const filter = ctx.createBiquadFilter();
+				filter.type = "highpass";
+				filter.frequency.value = 2000;
+				
+				const g = ctx.createGain();
+				g.gain.setValueAtTime(0, start);
+				g.gain.linearRampToValueAtTime(0.03 + Math.random() * 0.05, start + 0.002);
+				g.gain.exponentialRampToValueAtTime(0.001, start + 0.15);
+				
+				osc.connect(filter);
+				filter.connect(g);
+				g.connect(output);
+				osc.start(start);
+				osc.stop(start + 0.2);
+				this.trackNode(filter);
+				this.trackNode(g);
+			}
+
+			window.setTimeout(clinkTrigger, 3000 + Math.random() * 12000);
 		};
-		window.setTimeout(clinkTrigger, 3000);
+		window.setTimeout(clinkTrigger, 2000);
 	}
 
 	private buildWind(ctx: AudioContext, output: GainNode) {
