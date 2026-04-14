@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-task-pomodoro",
-	"version": "0.1.0",
+	"version": "1.0.1",
 	"description": "Per-task Pomodoro timers integrated with markdown todo items",
 	"main": "main.js",
 	"scripts": {
