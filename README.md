@@ -110,7 +110,7 @@ Designed based on neuroscientific research, these tracks use **Binaural Beats** 
 
 ### Manual
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/chao-ace/obsidian-task-pomodoro/releases)
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/chao-ace/task-pomodoro/releases)
 2. Create folder `obsidian-task-pomodoro` in your vault's `.obsidian/plugins/`
 3. Copy the three files into that folder
 4. Enable in **Settings → Community Plugins**
@@ -121,12 +121,12 @@ You can also install via [BRAT](https://github.com/TfTHacker/obsidian42-brat):
 
 1. Install BRAT from the community plugin store
 2. Run `BRAT: Add a beta plugin for testing`
-3. Enter: `chao-ace/obsidian-task-pomodoro`
+3. Enter: `chao-ace/task-pomodoro`
 
 ### Development
 
 ```bash
-git clone https://github.com/chao-ace/obsidian-task-pomodoro.git
+git clone https://github.com/chao-ace/task-pomodoro.git
 cd obsidian-task-pomodoro
 npm install
 npm run dev    # Watch mode with hot reload
