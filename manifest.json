@@ -1,10 +1,10 @@
 {
- 	"id": "task-pomodoro",
- 	"name": "Task Pomodoro",
- 	"version": "1.0.1",
- 	"minAppVersion": "1.4.0",
- 	"description": "Per-task Pomodoro timers integrated with markdown todo items. Track focus time for each task with visual 🍅 indicators.",
- 	"author": "chao-ace",
- 	"authorUrl": "https://github.com/chao-ace",
- 	"isDesktopOnly": false
- }
+	"id": "task-pomodoro",
+	"name": "Task Pomodoro",
+	"version": "1.0.1",
+	"minAppVersion": "1.4.0",
+	"description": "Per-task Pomodoro timers integrated with markdown todo items. Track focus time for each task with visual 🍅 indicators.",
+	"author": "chao-ace",
+	"authorUrl": "https://github.com/chao-ace",
+	"isDesktopOnly": false
+}
