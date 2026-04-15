@@ -32,6 +32,12 @@ export default class TaskPomodoroPlugin extends Plugin {
 		this.timerService = new TimerService(this.app, this.settings, this.taskParser, this.soundManager);
 		this.ambientManager = new AmbientManager(this.settings);
 
+		// Restore timer state from previous session
+		const savedData = await this.loadData();
+		if (savedData && (savedData as any).timerState) {
+			this.timerService.deserialize((savedData as any).timerState);
+		}
+
 		// Callback: pomodoro count update during active timer
 		this.timerService.setPomodoroCompleteCallback(async (filePath, lineNumber, newCount, totalHours) => {
 			await this.persistPomodoro(filePath, lineNumber, newCount, totalHours);
@@ -143,6 +149,14 @@ export default class TaskPomodoroPlugin extends Plugin {
 	}
 
 	onunload() {
+		// Persist timer state before cleanup so it survives reloads
+		const timerState = this.timerService.serialize();
+		const data: any = { ...this.settings };
+		if (timerState.timers.length > 0) {
+			data.timerState = timerState;
+		}
+		this.saveData(data);
+
 		this.timerService.cleanup();
 		this.soundManager.cleanup();
 		this.ambientManager.cleanup();
@@ -158,7 +172,15 @@ export default class TaskPomodoroPlugin extends Plugin {
 	}
 
 	async saveSettings() {
-		await this.saveData(this.settings);
+		const data: any = { ...this.settings };
+		// Preserve timer state when saving settings
+		if (this.timerService) {
+			const timerState = this.timerService.serialize();
+			if (timerState.timers.length > 0) {
+				data.timerState = timerState;
+			}
+		}
+		await this.saveData(data);
 		setLocale(this.settings.language as any);
 		this.taskParser.updateSettings(this.settings);
 		this.renderer.updateEmoji(this.settings.pomodoroEmoji);

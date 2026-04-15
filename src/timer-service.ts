@@ -12,6 +12,12 @@ export interface TaskFinishResult {
 	totalHours: number; // actual total hours worked (e.g. 0.8)
 }
 
+export interface SerializedTimerState {
+	timers: TaskTimerState[];
+	workIntervalCount: number;
+	currentDurationIndex: number;
+}
+
 export class TimerService {
 	private app: App;
 	private settings: TaskPomodoroSettings;
@@ -401,24 +407,38 @@ export class TimerService {
 		this.listeners.clear();
 	}
 
-	serialize(): TaskTimerState[] {
-		return Array.from(this.timers.values()).filter(
-			s => s.state !== "idle" && s.state !== "completed"
-		);
+	serialize(): SerializedTimerState {
+		return {
+			timers: Array.from(this.timers.values()).filter(
+				s => s.state !== "idle" && s.state !== "completed"
+			),
+			workIntervalCount: this.workIntervalCount,
+			currentDurationIndex: this.currentDurationIndex,
+		};
 	}
 
-	deserialize(states: TaskTimerState[]) {
-		for (const state of states) {
-			if (state.state === "working" && state.startedAt) {
+	deserialize(data: SerializedTimerState) {
+		this.workIntervalCount = data.workIntervalCount ?? 0;
+		this.currentDurationIndex = data.currentDurationIndex ?? 0;
+
+		for (const state of data.timers) {
+			if ((state.state === "working" || state.state === "break") && state.startedAt) {
 				const elapsed = Math.floor((Date.now() - state.startedAt) / 1000);
 				state.remainingSeconds = Math.max(0, state.remainingSeconds - elapsed);
-				state.totalWorkedSeconds += elapsed;
+				if (state.state === "working") {
+					state.totalWorkedSeconds += elapsed;
+				}
 				if (state.remainingSeconds <= 0) {
 					state.state = "idle";
 					state.remainingSeconds = state.totalWorkSeconds;
+					state.startedAt = null;
 				}
 			}
 			this.timers.set(state.key, state);
+		}
+
+		if (this.getActiveTimer()) {
+			this.ensureTickLoop();
 		}
 	}
 }
