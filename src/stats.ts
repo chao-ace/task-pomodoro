@@ -51,17 +51,15 @@ interface DayStats {
 	hours: number;
 }
 
-/** Parse all completed task lines, group stats by date */
+/** Parse all task lines for pomodoro stats, group by date */
 function parseTaskStats(content: string, emoji: string): Map<string, DayStats> {
 	const stats = new Map<string, DayStats>();
 	const lines = content.split("\n");
+	const today = formatDate(new Date());
 
 	for (const line of lines) {
-		// Look for completion marker with date
-		const dateMatch = line.match(/✅\s*(\d{4}-\d{2}-\d{2})/);
-		if (!dateMatch) continue;
-
-		const date = dateMatch[1];
+		// Skip non-task lines
+		if (!/^\s*- \[/.test(line)) continue;
 
 		// Count pomodoro emoji
 		let pomoCount = 0;
@@ -76,6 +74,13 @@ function parseTaskStats(content: string, emoji: string): Map<string, DayStats> {
 		// Extract hours (e.g., "0.4h", "1.2h", "2h")
 		const hoursMatch = line.match(/(\d+\.?\d*)h(?!\w)/);
 		const hours = hoursMatch ? parseFloat(hoursMatch[1]) : 0;
+
+		// Only count lines that have actual pomodoro data
+		if (pomoCount === 0 && hours === 0) continue;
+
+		// Determine the date: use ✅ date if present, otherwise today
+		const dateMatch = line.match(/✅\s*(\d{4}-\d{2}-\d{2})/);
+		const date = dateMatch ? dateMatch[1] : today;
 
 		if (!stats.has(date)) {
 			stats.set(date, { pomodoros: 0, hours: 0 });
