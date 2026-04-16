@@ -30,17 +30,11 @@ export class ReadingViewRenderer {
 		const sectionInfo = ctx.getSectionInfo(el);
 		if (!sectionInfo) {
 			// No section info — try to attach buttons without line number tracking
-			// This can happen in some edge cases
 			this.processItemsWithoutSection(taskItems, filePath, ctx);
 			return;
 		}
 
 		// We have section info — compute line numbers
-		// The section starts at lineStart. Task items within the section
-		// are sequential lines (each <li> = one markdown line for flat lists).
-		// But we need to account for non-task lines in the same section.
-
-		// Strategy: count all <li> elements (task and non-task) to get correct line offsets
 		const parentUl = taskItems[0]?.closest("ul");
 		if (!parentUl) return;
 
@@ -86,7 +80,6 @@ export class ReadingViewRenderer {
 			const textContent = this.getTaskText(li);
 			if (!textContent.trim()) continue;
 
-			// Use a DOM-based key when we don't have line numbers
 			const key = `${filePath}:dom-${i}`;
 			const child = new TaskButtonRenderChild(
 				li, key, filePath, -1, isComplete, textContent.trim(),
@@ -117,8 +110,8 @@ class TaskButtonRenderChild extends MarkdownRenderChild {
 	private taskParser: TaskParser;
 	private renderer: TaskRenderer;
 	private buttonEl: HTMLSpanElement | null = null;
-	private boundTick: (key: TaskKey) => void;
-	private boundStateChange: (key: TaskKey) => void;
+	private boundStateChange: () => void;
+	private refreshInterval: number | null = null;
 
 	constructor(
 		containerEl: HTMLElement,
@@ -140,39 +133,31 @@ class TaskButtonRenderChild extends MarkdownRenderChild {
 		this.timerService = timerService;
 		this.taskParser = taskParser;
 		this.renderer = renderer;
-		this.boundTick = this.handleTimerEvent.bind(this);
-		this.boundStateChange = this.handleTimerEvent.bind(this);
+		this.boundStateChange = this.rebuildButton.bind(this);
 	}
 
 	onload() {
-		const workSeconds = this.timerService.getSettings().workMinutes * 60;
+		if (this.isComplete) return;
 
-		if (this.isComplete) {
-			// Completed task: time tracking already in markdown text, skip
-			return;
-		}
+		this.createButton();
 
-		// Active/incomplete task: show timer button
-		const existingState = this.timerService.getState(this.key);
-		const pomodoroCount = existingState?.pomodoroCount ?? 0;
-		const state = existingState?.state ?? "idle";
-		const remaining = existingState?.remainingSeconds ?? workSeconds;
-		const totalWork = existingState?.totalWorkSeconds ?? workSeconds;
-
-		this.buttonEl = this.renderer.createButton(
-			state, remaining, totalWork, pomodoroCount,
-			() => this.handleClick()
-		);
-
-		this.containerEl.appendChild(this.buttonEl);
-
-		this.timerService.on("tick", this.boundTick);
+		// Rebuild on state changes (start/stop/pause)
 		this.timerService.on("state-change", this.boundStateChange);
+
+		// Refresh every second for countdown updates
+		this.refreshInterval = window.setInterval(() => {
+			const state = this.timerService.getState(this.key);
+			if (state && (state.state === "working" || state.state === "break" || state.state === "paused")) {
+				this.rebuildButton();
+			}
+		}, 1000);
 	}
 
 	onunload() {
-		this.timerService.off("tick", this.boundTick);
 		this.timerService.off("state-change", this.boundStateChange);
+		if (this.refreshInterval) {
+			window.clearInterval(this.refreshInterval);
+		}
 	}
 
 	private handleClick() {
@@ -186,17 +171,29 @@ class TaskButtonRenderChild extends MarkdownRenderChild {
 		}
 	}
 
-	private handleTimerEvent(key: TaskKey) {
-		if (key !== this.key || !this.buttonEl) return;
-		const state = this.timerService.getState(this.key);
-		if (!state) return;
+	private createButton() {
+		const workSeconds = this.timerService.getSettings().workMinutes * 60;
+		const existingState = this.timerService.getState(this.key);
+		const pomodoroCount = existingState?.pomodoroCount ?? 0;
+		const state = existingState?.state ?? "idle";
+		const remaining = existingState?.remainingSeconds ?? workSeconds;
+		const totalWork = existingState?.totalWorkSeconds ?? workSeconds;
 
-		this.renderer.updateButton(
-			this.buttonEl,
-			state.state,
-			state.remainingSeconds,
-			state.totalWorkSeconds,
-			state.pomodoroCount
+		// Remove old button if exists
+		if (this.buttonEl) {
+			this.buttonEl.remove();
+		}
+
+		this.buttonEl = this.renderer.createButton(
+			state, remaining, totalWork, pomodoroCount,
+			() => this.handleClick()
 		);
+
+		this.containerEl.appendChild(this.buttonEl);
+	}
+
+	private rebuildButton() {
+		if (this.isComplete) return;
+		this.createButton();
 	}
 }

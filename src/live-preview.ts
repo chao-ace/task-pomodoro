@@ -1,5 +1,5 @@
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType } from "@codemirror/view";
-import { TaskKey } from "./types";
+import { TaskKey, TimerState } from "./types";
 import { TaskParser } from "./task-parser";
 import { TimerService } from "./timer-service";
 import { TaskRenderer } from "./task-renderer";
@@ -13,6 +13,9 @@ class TaskPomodoroWidget extends WidgetType {
 	private timerService: TimerService;
 	private taskParser: TaskParser;
 	private renderer: TaskRenderer;
+	// Snapshot of timer state at creation time — used by eq() to detect changes
+	private snapshotState: TimerState | "none";
+	private snapshotRemaining: number;
 
 	constructor(
 		key: TaskKey,
@@ -33,6 +36,10 @@ class TaskPomodoroWidget extends WidgetType {
 		this.timerService = timerService;
 		this.taskParser = taskParser;
 		this.renderer = renderer;
+
+		const existingState = this.timerService.getState(this.key);
+		this.snapshotState = existingState?.state ?? "none";
+		this.snapshotRemaining = existingState?.remainingSeconds ?? -1;
 	}
 
 	toDOM(): HTMLElement {
@@ -44,7 +51,7 @@ class TaskPomodoroWidget extends WidgetType {
 			return placeholder;
 		}
 
-		// Active task: show timer button
+		// Active task: show timer button with current state
 		const workSeconds = this.timerService.getSettings().workMinutes * 60;
 		const existingState = this.timerService.getState(this.key);
 		const pomodoroCount = existingState?.pomodoroCount
@@ -70,7 +77,11 @@ class TaskPomodoroWidget extends WidgetType {
 	}
 
 	eq(other: TaskPomodoroWidget): boolean {
-		return this.key === other.key && this.lineText === other.lineText;
+		if (this.key !== other.key || this.lineText !== other.lineText) return false;
+		// When timer state changes, force DOM recreation via toDOM()
+		if (this.snapshotState !== other.snapshotState) return false;
+		if (this.snapshotState !== "none" && this.snapshotRemaining !== other.snapshotRemaining) return false;
+		return true;
 	}
 
 	ignoreEvent(event: Event): boolean {
@@ -102,52 +113,20 @@ export function createLivePreviewExtension(
 				this.getFilePath = getFilePath;
 				this.decorations = this.buildDecorations(this.view);
 
-				this.timerService.on("tick", this.handleTimerEvent);
-				this.timerService.on("state-change", this.handleTimerEvent);
+				// Rebuild on state changes (start/stop/pause/complete)
+				this.timerService.on("state-change", this.rebuild);
 
+				// Refresh every second for countdown updates
 				this.refreshInterval = window.setInterval(() => {
-					this.updateActiveWidgets();
+					if (this.timerService.getActiveTimer()) {
+						this.decorations = this.buildDecorations(this.view);
+					}
 				}, 1000);
 			}
 
-			handleTimerEvent = (key: TaskKey) => {
-				this.updateWidgetForKey(key);
+			private rebuild = () => {
+				this.decorations = this.buildDecorations(this.view);
 			};
-
-			private updateWidgetForKey(key: TaskKey) {
-				const widgets = this.view.dom.querySelectorAll(`[data-task-pomo-key="${key}"]`);
-				const state = this.timerService.getState(key);
-				if (!state || widgets.length === 0) return;
-
-				widgets.forEach((widget) => {
-					this.renderer.updateButton(
-						widget as HTMLSpanElement,
-						state.state,
-						state.remainingSeconds,
-						state.totalWorkSeconds,
-						state.pomodoroCount
-					);
-				});
-			}
-
-			private updateActiveWidgets() {
-				const allWidgets = this.view.dom.querySelectorAll("[data-task-pomo-key]");
-				allWidgets.forEach((widget) => {
-					const key = widget.getAttribute("data-task-pomo-key");
-					if (!key) return;
-					const state = this.timerService.getState(key);
-					if (!state) return;
-					if (state.state === "working" || state.state === "break" || state.state === "paused") {
-						this.renderer.updateButton(
-							widget as HTMLSpanElement,
-							state.state,
-							state.remainingSeconds,
-							state.totalWorkSeconds,
-							state.pomodoroCount
-						);
-					}
-				});
-			}
 
 			update(update: ViewUpdate) {
 				if (update.docChanged || update.viewportChanged) {
@@ -194,8 +173,7 @@ export function createLivePreviewExtension(
 			}
 
 			destroy() {
-				this.timerService.off("tick", this.handleTimerEvent);
-				this.timerService.off("state-change", this.handleTimerEvent);
+				this.timerService.off("state-change", this.rebuild);
 				if (this.refreshInterval) {
 					window.clearInterval(this.refreshInterval);
 				}

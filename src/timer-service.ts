@@ -71,9 +71,6 @@ export class TimerService {
 		const state = this.timers.get(key);
 		if (!state) return;
 		this.listeners.get(event)?.forEach(cb => cb(key, state));
-		if (event !== "state-change") {
-			this.listeners.get("state-change")?.forEach(cb => cb(key, state));
-		}
 	}
 
 	private ensureTickLoop() {
