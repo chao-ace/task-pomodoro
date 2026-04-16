@@ -159,7 +159,11 @@ export async function updateStats(app: App, filePath: string, emoji: string): Pr
 	if (!(file instanceof TFile)) return;
 	if (!isWeeklyNote(file.name)) return;
 
-	const content = await app.vault.read(file);
+	// Read from editor buffer when active (avoids stale vault reads after editor edits)
+	const view = app.workspace.getActiveViewOfType(MarkdownView);
+	const isActive = view && view.file?.path === filePath;
+	const content = isActive ? view.editor.getValue() : await app.vault.read(file);
+
 	const statsBlock = generateStatsContent(content, file.name, emoji);
 	if (!statsBlock) return;
 
@@ -176,9 +180,7 @@ export async function updateStats(app: App, filePath: string, emoji: string): Pr
 		newContent = content.trimEnd() + "\n\n" + statsBlock + "\n";
 	}
 
-	// Try to update via editor if the file is active
-	const view = app.workspace.getActiveViewOfType(MarkdownView);
-	if (view && view.file?.path === filePath) {
+	if (isActive) {
 		view.editor.setValue(newContent);
 	} else {
 		await app.vault.modify(file, newContent);

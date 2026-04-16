@@ -429,9 +429,13 @@ export class TimerService {
 					state.totalWorkedSeconds += elapsed;
 				}
 				if (state.remainingSeconds <= 0) {
+					// Timer completed during downtime — mark so caller can trigger callbacks
 					state.state = "idle";
 					state.remainingSeconds = state.totalWorkSeconds;
 					state.startedAt = null;
+				} else {
+					// Timer still running — reset startedAt so next reload is accurate
+					state.startedAt = Date.now();
 				}
 			}
 			this.timers.set(state.key, state);

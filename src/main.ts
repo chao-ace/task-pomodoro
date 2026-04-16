@@ -33,23 +33,27 @@ export default class TaskPomodoroPlugin extends Plugin {
 		this.timerService = new TimerService(this.app, this.settings, this.taskParser, this.soundManager);
 		this.ambientManager = new AmbientManager(this.settings);
 
+		// Register callbacks BEFORE restoring state so completed-during-downtime timers trigger them
+		this.timerService.setPomodoroCompleteCallback(async (filePath, lineNumber, newCount, totalHours) => {
+			await this.persistPomodoro(filePath, lineNumber, newCount, totalHours);
+		});
+
+		this.timerService.setTaskFinishCallback(
+			async (filePath: string, lineNumber: number, result) => {
+				await this.persistTaskFinish(filePath, lineNumber, result);
+			}
+		);
+
 		// Restore timer state from previous session
 		const savedData = await this.loadData();
 		if (savedData && (savedData as any).timerState) {
 			this.timerService.deserialize((savedData as any).timerState);
 		}
 
-		// Callback: pomodoro count update during active timer
-		this.timerService.setPomodoroCompleteCallback(async (filePath, lineNumber, newCount, totalHours) => {
-			await this.persistPomodoro(filePath, lineNumber, newCount, totalHours);
+		// Persist timer state on every state-change so crashes/force-quits don't lose data
+		this.timerService.on("state-change", () => {
+			this.saveTimerState();
 		});
-
-		// Callback: task finished (user checked off a task with active timer)
-		this.timerService.setTaskFinishCallback(
-			async (filePath: string, lineNumber: number, result) => {
-				await this.persistTaskFinish(filePath, lineNumber, result);
-			}
-		);
 
 		// Reading View post-processor
 		this.readingViewRenderer = new ReadingViewRenderer(
@@ -156,14 +160,7 @@ export default class TaskPomodoroPlugin extends Plugin {
 	}
 
 	onunload() {
-		// Persist timer state before cleanup so it survives reloads
-		const timerState = this.timerService.serialize();
-		const data: any = { ...this.settings };
-		if (timerState.timers.length > 0) {
-			data.timerState = timerState;
-		}
-		this.saveData(data);
-
+		this.saveTimerState();
 		this.timerService.cleanup();
 		this.soundManager.cleanup();
 		this.ambientManager.cleanup();
@@ -259,6 +256,16 @@ export default class TaskPomodoroPlugin extends Plugin {
 		}
 	}
 
+	/** Persist timer state to data.json (fire-and-forget, also called on state-change) */
+	private saveTimerState() {
+		const data: any = { ...this.settings };
+		const timerState = this.timerService.serialize();
+		if (timerState.timers.length > 0) {
+			data.timerState = timerState;
+		}
+		this.saveData(data);
+	}
+
 	/** Persist a pomodoro count update (during active timer) */
 	private async persistPomodoro(filePath: string, lineNumber: number, newCount: number, totalHours: number) {
 		try {
@@ -268,26 +275,25 @@ export default class TaskPomodoroPlugin extends Plugin {
 				if (this.taskParser.isTaskLine(line)) {
 					const updated = this.taskParser.updatePomodoroCount(line, newCount, totalHours);
 					view.editor.setLine(lineNumber, updated);
-					return;
 				}
-			}
-
-			const file = this.app.vault.getAbstractFileByPath(filePath);
-			if (file instanceof TFile) {
-				const content = await this.app.vault.read(file);
-				const lines = content.split("\n");
-				if (lineNumber >= 0 && lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
-					lines[lineNumber] = this.taskParser.updatePomodoroCount(lines[lineNumber], newCount, totalHours);
-					await this.app.vault.modify(file, lines.join("\n"));
+			} else {
+				const file = this.app.vault.getAbstractFileByPath(filePath);
+				if (file instanceof TFile) {
+					const content = await this.app.vault.read(file);
+					const lines = content.split("\n");
+					if (lineNumber >= 0 && lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
+						lines[lineNumber] = this.taskParser.updatePomodoroCount(lines[lineNumber], newCount, totalHours);
+						await this.app.vault.modify(file, lines.join("\n"));
+					}
 				}
 			}
 		} catch {
 			// Silently ignore persistence errors
 		}
 
-		// Auto-update stats if this is a weekly note
+		// Auto-update stats if this is a weekly note (always runs, not blocked by early return)
 		if (isWeeklyNote(filePath.split("/").pop() ?? "")) {
-			updateStats(this.app, filePath, this.settings.pomodoroEmoji);
+			await updateStats(this.app, filePath, this.settings.pomodoroEmoji);
 		}
 	}
 
@@ -306,19 +312,18 @@ export default class TaskPomodoroPlugin extends Plugin {
 						line, result.pomodoroCount, result.totalHours
 					);
 					view.editor.setLine(lineNumber, updated);
-					return;
 				}
-			}
-
-			const file = this.app.vault.getAbstractFileByPath(filePath);
-			if (file instanceof TFile) {
-				const content = await this.app.vault.read(file);
-				const lines = content.split("\n");
-				if (lineNumber >= 0 && lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
-					lines[lineNumber] = this.taskParser.updateTimeTracking(
-						lines[lineNumber], result.pomodoroCount, result.totalHours
-					);
-					await this.app.vault.modify(file, lines.join("\n"));
+			} else {
+				const file = this.app.vault.getAbstractFileByPath(filePath);
+				if (file instanceof TFile) {
+					const content = await this.app.vault.read(file);
+					const lines = content.split("\n");
+					if (lineNumber >= 0 && lineNumber < lines.length && this.taskParser.isTaskLine(lines[lineNumber])) {
+						lines[lineNumber] = this.taskParser.updateTimeTracking(
+							lines[lineNumber], result.pomodoroCount, result.totalHours
+						);
+						await this.app.vault.modify(file, lines.join("\n"));
+					}
 				}
 			}
 		} catch {
@@ -327,7 +332,7 @@ export default class TaskPomodoroPlugin extends Plugin {
 
 		// Auto-update stats if this is a weekly note
 		if (isWeeklyNote(filePath.split("/").pop() ?? "")) {
-			updateStats(this.app, filePath, this.settings.pomodoroEmoji);
+			await updateStats(this.app, filePath, this.settings.pomodoroEmoji);
 		}
 	}
 
